@@ -68,6 +68,8 @@ export interface TeacherAccount {
   isDemo?: boolean;
   activatedAt: string;
   avatarUrl?: string;
+  ownerId?: string;
+  firebaseVerified?: boolean;
 }
 
 export type ProktorTabType =

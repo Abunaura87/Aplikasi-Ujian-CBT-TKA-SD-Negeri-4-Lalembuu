@@ -233,6 +233,43 @@ export const TeacherAccountActivationTab: React.FC<
             </div>
           </div>
         </div>
+
+        {/* Firebase Auth & Cloud Firestore Sync Status Strip */}
+        <div className="mt-5 pt-4 border-t border-emerald-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-xs">
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${
+                firebaseUser ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+              }`}
+            />
+            <span className="font-semibold text-[#11331F]">
+              Status Integrasi Firebase Auth & Cloud Firestore:
+            </span>
+            {firebaseUser ? (
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[11px]">
+                Terhubung ({firebaseUser.email}) • Sinkronisasi Real-Time Aktif
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-semibold text-[11px]">
+                Mode Lokal • Klik tombol di kanan untuk menautkan sesi Google Admin ke Firestore
+              </span>
+            )}
+          </div>
+
+          {!firebaseUser && onConnectFirebaseAuth && (
+            <button
+              type="button"
+              onClick={() => {
+                sound.playClick();
+                onConnectFirebaseAuth();
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-[#153822] hover:bg-[#1E4F31] text-amber-300 font-bold text-xs border border-amber-400/50 flex items-center gap-1.5 cursor-pointer"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Autentikasi Sesi Firebase Google</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {feedback && (

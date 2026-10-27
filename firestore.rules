@@ -28,9 +28,13 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'marhaniza05@gmail.com';
+    }
+
     function isAdmin() {
-      return isVerifiedUser() && (
-        request.auth.token.email == 'marhaniza05@gmail.com' ||
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -44,7 +48,8 @@ service cloud.firestore {
         'email',
         'subject',
         'grade',
-        'isActive',
+        'role',
+        'status',
         'isDemo',
         'activatedAt',
         'ownerId'
@@ -56,7 +61,8 @@ service cloud.firestore {
         'email',
         'subject',
         'grade',
-        'isActive',
+        'role',
+        'status',
         'isDemo',
         'activatedAt',
         'ownerId'
@@ -67,7 +73,8 @@ service cloud.firestore {
       data.email is string && data.email.size() >= 5 && data.email.size() <= 160 &&
       data.subject is string && data.subject.size() >= 2 && data.subject.size() <= 80 &&
       data.grade is string && data.grade.size() >= 2 && data.grade.size() <= 40 &&
-      data.isActive is bool &&
+      data.role is string && data.role.size() >= 2 && data.role.size() <= 20 && data.role in ['proktor', 'guru_mapel'] &&
+      data.status is string && data.status.size() >= 2 && data.status.size() <= 20 && data.status in ['active', 'inactive'] &&
       data.isDemo is bool &&
       data.activatedAt is string && data.activatedAt.size() >= 1 && data.activatedAt.size() <= 60 &&
       data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
@@ -86,17 +93,21 @@ service cloud.firestore {
         isAdmin()
       );
 
+      // Cost-optimized list rule: no get() or exists() calls inside allow list
       allow list: if isVerifiedUser() && (
         existing().ownerId == request.auth.uid ||
         existing().email == request.auth.token.email ||
-        isAdmin()
+        isBootstrappedAdmin()
       );
 
       allow create: if isVerifiedUser() &&
         isValidId(teacherId) &&
         incoming().id == teacherId &&
         isValidTeacherAccount(incoming()) &&
-        (isAdmin() || incoming().email == request.auth.token.email);
+        (
+          isAdmin() ||
+          (incoming().email == request.auth.token.email && incoming().role == 'guru_mapel')
+        );
 
       allow update: if isVerifiedUser() &&
         isValidId(teacherId) &&
@@ -107,7 +118,9 @@ service cloud.firestore {
           isAdmin() ||
           (
             existing().ownerId == request.auth.uid &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'nip', 'subject', 'grade', 'isActive'])
+            incoming().role == existing().role &&
+            incoming().email == existing().email &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'nip', 'subject', 'grade', 'status', 'activatedAt'])
           )
         );
 

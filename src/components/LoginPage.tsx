@@ -21,9 +21,13 @@ import {
   Volume1,
   Minus,
   Plus,
+  LogOut,
 } from 'lucide-react';
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from '../firebase';
+import {
+  signInWithFirebaseGoogle,
+  logoutFirebase,
+  User,
+} from '../firebase';
 import {
   AppBrandingConfig,
   ExamConfig,
@@ -43,6 +47,8 @@ interface LoginPageProps {
   customProktorPassword?: string;
   students: Student[];
   teacherAccounts: TeacherAccount[];
+  firebaseUser?: User | null;
+  isAuthReady?: boolean;
   onLoginProktor: (loggedInTeacher: TeacherAccount) => void;
   onLoginTeacher: (loggedInTeacher: TeacherAccount) => void;
   onLoginStudent: (student: Student, selectedSession: ExamConfig) => void;
@@ -60,6 +66,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   customProktorPassword,
   students,
   teacherAccounts,
+  firebaseUser,
   onLoginProktor,
   onLoginTeacher,
   onLoginStudent,
@@ -90,6 +97,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
+  const [isProktorGoogleLoading, setIsProktorGoogleLoading] = useState(false);
 
   // Activated Google Teacher Auth states (email entered directly by the teacher)
   const [googleEmailInput, setGoogleEmailInput] = useState<string>('');
@@ -102,6 +110,58 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   );
   const [tokenInput, setTokenInput] = useState('');
   const [tokenError, setTokenError] = useState('');
+
+  // Firebase Google Sign-In for Admin / Proktor
+  const handleFirebaseProktorGoogleLogin = async () => {
+    sound.playClick();
+    setPasswordError('');
+    setIsProktorGoogleLoading(true);
+    try {
+      const user = await signInWithFirebaseGoogle();
+      const signedInEmail = (user.email || '').trim().toLowerCase();
+
+      // Check if user is the bootstrapped admin email or an active proktor in teacherAccounts
+      const matchedProktor = teacherAccounts.find(
+        (t) =>
+          t.email.trim().toLowerCase() === signedInEmail &&
+          t.role === 'proktor' &&
+          t.status === 'active'
+      );
+
+      if (signedInEmail === 'marhaniza05@gmail.com' || matchedProktor) {
+        sound.playSuccess();
+        setIsProktorGoogleLoading(false);
+        const adminAccount: TeacherAccount = matchedProktor || {
+          id: 'teacher-1',
+          name: user.displayName || 'Marhan, S.Pd.I., M.Pd.',
+          email: signedInEmail,
+          nip: '198405122010011008',
+          subject: 'Administrator & Proktor Utama',
+          grade: 'Semua Kelas',
+          role: 'proktor',
+          status: 'active',
+          activatedAt: '27 Okt 2026',
+        };
+        onLoginProktor({
+          ...adminAccount,
+          avatarUrl: user.photoURL || adminAccount.avatarUrl,
+          ownerId: user.uid,
+          firebaseVerified: true,
+        });
+        return;
+      }
+
+      setIsProktorGoogleLoading(false);
+      setPasswordError(
+        `Akun Google "${signedInEmail}" berhasil diautentikasi Firebase, namun tidak terdaftar sebagai Admin/Proktor Utama. Silakan pilih "Login Guru Mapel" atau gunakan akun Admin resmi.`
+      );
+    } catch {
+      setIsProktorGoogleLoading(false);
+      setPasswordError(
+        'Jendela login Google ditutup atau diblokir browser. Anda juga dapat masuk menggunakan Password Admin / Proktor di bawah ini.'
+      );
+    }
+  };
 
   const handleProktorSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,7 +187,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       status: 'active',
       activatedAt: '26 Okt 2026',
     };
-    onLoginProktor(adminProktorAccount);
+    onLoginProktor({
+      ...adminProktorAccount,
+      ownerId: firebaseUser?.uid || adminProktorAccount.ownerId,
+      firebaseVerified: Boolean(firebaseUser),
+    });
   };
 
   // Real Firebase Google Popup Sign-In with Activated Teacher Verification
@@ -136,8 +200,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setGoogleAuthError('');
     setIsGoogleLoading(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const signedInEmail = result.user.email || '';
+      const user = await signInWithFirebaseGoogle();
+      const signedInEmail = user.email || '';
       const check = verifyActivatedTeacherEmail(signedInEmail, teacherAccounts);
       if (!check.isValid || !check.teacher) {
         setGoogleAuthError(check.message);
@@ -146,12 +210,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       }
       sound.playSuccess();
       setIsGoogleLoading(false);
+      const verifiedTeacher: TeacherAccount = {
+        ...check.teacher,
+        avatarUrl: user.photoURL || check.teacher.avatarUrl,
+        ownerId: user.uid,
+        firebaseVerified: true,
+      };
       // Route based on whether the Google account is proktor or guru_mapel
-      if (check.teacher.role === 'proktor') {
-        onLoginProktor(check.teacher);
+      if (verifiedTeacher.role === 'proktor') {
+        onLoginProktor(verifiedTeacher);
       } else {
         onLoginTeacher({
-          ...check.teacher,
+          ...verifiedTeacher,
           role: 'guru_mapel',
         });
       }
@@ -165,11 +235,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         if (fallbackCheck.isValid && fallbackCheck.teacher) {
           sound.playSuccess();
           if (fallbackCheck.teacher.role === 'proktor') {
-            onLoginProktor(fallbackCheck.teacher);
+            onLoginProktor({
+              ...fallbackCheck.teacher,
+              firebaseVerified: Boolean(firebaseUser),
+            });
           } else {
             onLoginTeacher({
               ...fallbackCheck.teacher,
               role: 'guru_mapel',
+              firebaseVerified: Boolean(firebaseUser),
             });
           }
           return;
@@ -192,12 +266,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
     setGoogleAuthError('');
     sound.playSuccess();
+    const matchedFirebase =
+      firebaseUser &&
+      firebaseUser.email?.trim().toLowerCase() ===
+        check.teacher.email.trim().toLowerCase();
     if (check.teacher.role === 'proktor') {
-      onLoginProktor(check.teacher);
+      onLoginProktor({
+        ...check.teacher,
+        ownerId: matchedFirebase ? firebaseUser?.uid : check.teacher.ownerId,
+        firebaseVerified: Boolean(matchedFirebase),
+      });
     } else {
       onLoginTeacher({
         ...check.teacher,
         role: 'guru_mapel',
+        ownerId: matchedFirebase ? firebaseUser?.uid : check.teacher.ownerId,
+        firebaseVerified: Boolean(matchedFirebase),
       });
     }
   };
@@ -421,7 +505,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       </header>
 
       {/* Main Login Card Area */}
-      <main className="relative z-10 flex-1 flex items-center justify-center px-4 py-8 sm:py-12">
+      <main className="relative z-10 flex items-center justify-center px-4 py-8 sm:py-12 flex-1">
         <div className="w-full max-w-[500px]">
           <div className="card-3d rounded-3xl p-6 sm:p-8 relative text-stone-800">
             {/* Top Icon / Custom Logo Badge */}
@@ -442,7 +526,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
 
             {/* Title & Active Kode Tes Badge */}
-            <div className="text-center mb-5">
+            <div className="text-center mb-4">
               <h2 className="text-lg sm:text-xl font-semibold text-[#132F20] tracking-normal">
                 {branding.loginAppTitle || 'Simulasi CBT / TKA'}
               </h2>
@@ -452,6 +536,58 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   {selectedSession ? selectedSession.testCode : 'BELUM ADA TES'}
                 </span>
               </div>
+            </div>
+
+            {/* Firebase Authentication Connection & Active Session Status Banner */}
+            <div
+              data-testid="firebase-auth-status-banner"
+              className={`mb-4 p-3 rounded-2xl border text-xs flex items-center justify-between gap-2 ${
+                firebaseUser
+                  ? 'bg-emerald-50/95 border-emerald-300 text-emerald-950'
+                  : 'bg-[#F6FAF7] border-emerald-200/90 text-[#143923]'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`p-1.5 rounded-xl shrink-0 ${
+                    firebaseUser
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-[11px] flex items-center gap-1.5">
+                    <span>
+                      {firebaseUser
+                        ? 'Sesi Firebase Auth Terverifikasi'
+                        : 'Proteksi Firebase Authentication Aktif'}
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  </div>
+                  <p className="text-[11px] text-stone-600 truncate">
+                    {firebaseUser
+                      ? `Akun Google: ${firebaseUser.email}`
+                      : 'Setiap akun Guru & Admin diautentikasi lewat Firebase Auth'}
+                  </p>
+                </div>
+              </div>
+
+              {firebaseUser && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playClick();
+                    logoutFirebase();
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                  title="Putuskan sesi Google Firebase saat ini"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>Ganti Akun</span>
+                </button>
+              )}
             </div>
 
             {/* Locked Info Section reflecting the selected Kode Tes */}
@@ -541,9 +677,49 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
-            {/* 1. Admin / Proktor Password Form */}
+            {/* 1. Admin / Proktor Form (Supports Firebase Google Auth + Proktor Password) */}
             {role === 'proktor' && (
               <div className="space-y-4">
+                <button
+                  type="button"
+                  data-testid="proktor-firebase-google-btn"
+                  onClick={handleFirebaseProktorGoogleLogin}
+                  disabled={isProktorGoogleLoading}
+                  className="btn-3d w-full py-3 px-4 rounded-xl bg-white hover:bg-emerald-50/60 text-stone-900 border-2 border-emerald-300 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2.5 cursor-pointer"
+                >
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                    />
+                  </svg>
+                  <span>
+                    {isProktorGoogleLoading
+                      ? 'Mengautentikasi Akun Firebase...'
+                      : 'Autentikasi Google Admin / Proktor (Firebase)'}
+                  </span>
+                </button>
+
+                <div className="relative flex py-0.5 items-center">
+                  <div className="flex-grow border-t border-stone-200" />
+                  <span className="flex-shrink mx-3 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                    Atau Gunakan Sandi Proktor
+                  </span>
+                  <div className="flex-grow border-t border-stone-200" />
+                </div>
+
                 <form onSubmit={handleProktorSubmit} className="space-y-4">
                   <div>
                     <label
@@ -598,16 +774,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             )}
 
-            {/* 2. Guru Mapel (Autentikasi Google Teraktivasi) */}
+            {/* 2. Guru Mapel (Autentikasi Google Teraktivasi via Firebase) */}
             {role === 'guru_google' && (
               <div className="space-y-4">
                 <div className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 text-xs text-emerald-950">
                   <div className="font-extrabold flex items-center gap-1.5 mb-1">
                     <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                    <span>Akses Khusus Guru Mata Pelajaran</span>
+                    <span>Autentikasi Firebase Google Guru Mapel</span>
                   </div>
                   <p className="text-[11px] text-emerald-800 leading-relaxed">
-                    Masuk menggunakan Akun Google Guru yang telah diaktivasi oleh Admin/Proktor untuk mengelola soal, memantau peserta, dan melihat nilai mata pelajaran Anda.
+                    Masuk menggunakan Akun Google Guru yang telah diaktivasi oleh Admin/Proktor. Setiap akun diverifikasi melalui layanan Firebase Authentication & Cloud Firestore.
                   </p>
                 </div>
 
@@ -638,8 +814,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </svg>
                   <span>
                     {isGoogleLoading
-                      ? 'Memverifikasi Akun Google...'
-                      : 'Sign in with Google (Guru Mapel)'}
+                      ? 'Memverifikasi Akun Google di Firebase...'
+                      : 'Sign in with Google (Firebase Auth Guru)'}
                   </span>
                 </button>
 

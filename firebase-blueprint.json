@@ -2,11 +2,12 @@
   "entities": {
     "TeacherAccount": {
       "title": "TeacherAccount",
-      "description": "Activated subject teacher account authorized for Google Authentication in CBT SD Negeri 4 Lalembuu.",
+      "description": "Activated teacher or proktor account authorized for Firebase Google Authentication in CBT SD Negeri 4 Lalembuu.",
       "type": "object",
       "properties": {
         "id": {
           "type": "string",
+          "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$",
           "description": "Unique identifier for the teacher account."
@@ -28,7 +29,7 @@
           "format": "email",
           "minLength": 5,
           "maxLength": 160,
-          "description": "Google account email address activated for login."
+          "description": "Google account email address activated for Firebase login."
         },
         "subject": {
           "type": "string",
@@ -42,9 +43,19 @@
           "maxLength": 40,
           "description": "Assigned class/grade level."
         },
-        "isActive": {
-          "type": "boolean",
-          "description": "Whether this teacher's Google account is currently activated for login."
+        "role": {
+          "type": "string",
+          "enum": ["proktor", "guru_mapel"],
+          "minLength": 2,
+          "maxLength": 20,
+          "description": "Role of the account in CBT application."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "inactive"],
+          "minLength": 2,
+          "maxLength": 20,
+          "description": "Activation status for Firebase Google Authentication."
         },
         "isDemo": {
           "type": "boolean",
@@ -60,7 +71,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "description": "UID of the creator or authenticated teacher."
+          "description": "Firebase Auth UID of the creator or authenticated teacher."
         }
       },
       "required": [
@@ -70,7 +81,8 @@
         "email",
         "subject",
         "grade",
-        "isActive",
+        "role",
+        "status",
         "isDemo",
         "activatedAt",
         "ownerId"
@@ -82,7 +94,7 @@
       "schema": {
         "$ref": "#/entities/TeacherAccount"
       },
-      "description": "Stores activated subject teacher accounts authorized to sign in via Google."
+      "description": "Stores activated teacher and proktor accounts authorized to sign in via Firebase Google Authentication."
     }
   }
 }

@@ -10,8 +10,20 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  query,
+  where,
 } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import {
+  db,
+  auth,
+  onAuthStateChanged,
+  signInWithFirebaseGoogle,
+  logoutFirebase,
+  sanitizeTeacherForFirestore,
+  handleFirestoreError,
+  OperationType,
+  User,
+} from './firebase';
 import {
   ExamConfig,
   Student,
@@ -119,6 +131,18 @@ export default function App() {
     INITIAL_TEACHER_ACCOUNTS[0]
   );
 
+  // Firebase Auth state tracking
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
   // Sync teacherAccounts to localStorage
   useEffect(() => {
     try {
@@ -131,33 +155,86 @@ export default function App() {
     }
   }, [teacherAccounts]);
 
-  // Real-time Firestore listener when Firebase Auth user is signed in
+  // Real-time Firestore listener when Firebase Auth is ready and user is authenticated
   useEffect(() => {
-    if (!auth.currentUser) return;
+    if (!isAuthReady || !firebaseUser) return;
+    const isEmailAdmin =
+      firebaseUser.email?.trim().toLowerCase() === 'marhaniza05@gmail.com';
+    const targetQuery = isEmailAdmin
+      ? collection(db, 'teacher_accounts')
+      : query(
+          collection(db, 'teacher_accounts'),
+          where('email', '==', (firebaseUser.email || '').trim().toLowerCase())
+        );
+
     const unsubscribe = onSnapshot(
-      collection(db, 'teacher_accounts'),
+      targetQuery,
       (snapshot) => {
         if (!snapshot.empty) {
           const loaded: TeacherAccount[] = [];
           snapshot.forEach((docSnap) => {
             loaded.push(docSnap.data() as TeacherAccount);
           });
-          setTeacherAccounts(loaded);
+          setTeacherAccounts((prev) => {
+            const byId = new Map(prev.map((item) => [item.id, item]));
+            loaded.forEach((item) => byId.set(item.id, item));
+            return Array.from(byId.values());
+          });
         }
       },
-      () => {
-        // Fallback to local state silently if unauthenticated
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'teacher_accounts');
+        } catch {
+          // Logged structured FirestoreErrorInfo
+        }
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [isAuthReady, firebaseUser]);
+
+  const syncTeacherToFirestore = async (teacher: TeacherAccount) => {
+    if (!auth.currentUser) return;
+    const path = `teacher_accounts/${teacher.id}`;
+    try {
+      const payload = sanitizeTeacherForFirestore(
+        teacher,
+        auth.currentUser.uid
+      );
+      await setDoc(doc(db, 'teacher_accounts', String(payload.id)), payload);
+    } catch (error) {
+      try {
+        handleFirestoreError(error, OperationType.WRITE, path);
+      } catch {
+        // Logged structured FirestoreErrorInfo
+      }
+    }
+  };
+
+  const handleConnectFirebaseAuth = async () => {
+    try {
+      const user = await signInWithFirebaseGoogle();
+      setFirebaseUser(user);
+      const updatedTeacher: TeacherAccount = {
+        ...loggedInTeacher,
+        ownerId: user.uid,
+        firebaseVerified: true,
+      };
+      setLoggedInTeacher(updatedTeacher);
+      await syncTeacherToFirestore(updatedTeacher);
+    } catch {
+      // User closed popup or popup blocked
+    }
+  };
 
   const handleAddTeacherAccount = (newTeacher: TeacherAccount) => {
-    setTeacherAccounts((prev) => [newTeacher, ...prev]);
+    const enriched: TeacherAccount = {
+      ...newTeacher,
+      ownerId: auth.currentUser?.uid || 'system',
+    };
+    setTeacherAccounts((prev) => [enriched, ...prev]);
     if (auth.currentUser) {
-      setDoc(doc(db, 'teacher_accounts', newTeacher.id), newTeacher).catch(
-        () => {}
-      );
+      syncTeacherToFirestore(enriched);
     }
   };
 
@@ -168,11 +245,10 @@ export default function App() {
           const updated: TeacherAccount = {
             ...t,
             status: t.status === 'active' ? 'inactive' : 'active',
+            ownerId: auth.currentUser?.uid || t.ownerId || 'system',
           };
           if (auth.currentUser) {
-            setDoc(doc(db, 'teacher_accounts', updated.id), updated).catch(
-              () => {}
-            );
+            syncTeacherToFirestore(updated);
           }
           return updated;
         }
@@ -184,7 +260,17 @@ export default function App() {
   const handleDeleteTeacherAccount = (teacherId: string) => {
     setTeacherAccounts((prev) => prev.filter((t) => t.id !== teacherId));
     if (auth.currentUser) {
-      deleteDoc(doc(db, 'teacher_accounts', teacherId)).catch(() => {});
+      deleteDoc(doc(db, 'teacher_accounts', teacherId)).catch((error) => {
+        try {
+          handleFirestoreError(
+            error,
+            OperationType.DELETE,
+            `teacher_accounts/${teacherId}`
+          );
+        } catch {
+          // Logged structured FirestoreErrorInfo
+        }
+      });
     }
   };
 
@@ -491,6 +577,8 @@ export default function App() {
           customProktorPassword={customProktorPassword}
           students={students}
           teacherAccounts={teacherAccounts}
+          firebaseUser={firebaseUser}
+          isAuthReady={isAuthReady}
           branding={branding}
           fontSize={fontSize}
           onChangeFontSize={setFontSize}
@@ -499,19 +587,27 @@ export default function App() {
           soundVolume={soundVolume}
           onChangeSoundVolume={handleChangeSoundVolume}
           onLoginProktor={(proktorAccount) => {
-            setLoggedInTeacher({
+            const nextProktor: TeacherAccount = {
               ...proktorAccount,
               role: 'proktor',
-            });
+            };
+            setLoggedInTeacher(nextProktor);
+            if (auth.currentUser) {
+              syncTeacherToFirestore(nextProktor);
+            }
             setIsPreviewMode(false);
             setCurrentView('proktor');
             setActiveTab('panel');
           }}
           onLoginTeacher={(teacherAccount) => {
-            setLoggedInTeacher({
+            const nextTeacher: TeacherAccount = {
               ...teacherAccount,
               role: 'guru_mapel',
-            });
+            };
+            setLoggedInTeacher(nextTeacher);
+            if (auth.currentUser) {
+              syncTeacherToFirestore(nextTeacher);
+            }
             // Automatically select the session matching this teacher's subject if available
             const matchingSession = testSessions.find(
               (s) =>
@@ -558,7 +654,10 @@ export default function App() {
             onToggleSound={handleToggleSound}
             soundVolume={soundVolume}
             onChangeSoundVolume={handleChangeSoundVolume}
-            onLogout={() => setCurrentView('login')}
+            onLogout={() => {
+              logoutFirebase().catch(() => {});
+              setCurrentView('login');
+            }}
             testCode={currentExamConfig.testCode}
             activeSubject={currentExamConfig.subject}
             activeGrade={currentExamConfig.grade}
@@ -567,6 +666,8 @@ export default function App() {
             loggedInTeacher={loggedInTeacher}
             branding={branding}
             onOpenGoogleDrive={() => setIsDriveModalOpen(true)}
+            firebaseUser={firebaseUser}
+            onConnectFirebaseAuth={handleConnectFirebaseAuth}
           />
 
           <div className="flex-1 flex flex-col min-w-0">
@@ -648,6 +749,8 @@ export default function App() {
                       setIsPreviewMode(true);
                       setCurrentView('exam');
                     }}
+                    firebaseUser={firebaseUser}
+                    onConnectFirebaseAuth={handleConnectFirebaseAuth}
                   />
                 )}
 
