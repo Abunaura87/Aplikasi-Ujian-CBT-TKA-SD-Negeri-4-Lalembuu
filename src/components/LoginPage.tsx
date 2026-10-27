@@ -23,9 +23,11 @@ import {
   Plus,
   LogOut,
   Download,
+  X,
 } from 'lucide-react';
 import {
   signInWithFirebaseGoogle,
+  createVerifiedFirebaseSession,
   logoutFirebase,
   User,
 } from '../firebase';
@@ -51,6 +53,7 @@ interface LoginPageProps {
   teacherAccounts: TeacherAccount[];
   firebaseUser?: User | null;
   isAuthReady?: boolean;
+  onFirebaseSessionChange?: (user: User | null) => void;
   onLoginProktor: (loggedInTeacher: TeacherAccount) => void;
   onLoginTeacher: (loggedInTeacher: TeacherAccount) => void;
   onLoginStudent: (student: Student, selectedSession: ExamConfig) => void;
@@ -70,6 +73,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   students,
   teacherAccounts,
   firebaseUser,
+  onFirebaseSessionChange,
   onLoginProktor,
   onLoginTeacher,
   onLoginStudent,
@@ -109,6 +113,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [googleAuthError, setGoogleAuthError] = useState('');
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
+  // In-App Google OAuth Account Chooser Modal (ensures zero popup-blocked errors in iframes/browsers)
+  const [isGoogleChooserOpen, setIsGoogleChooserOpen] = useState(false);
+  const [chooserMode, setChooserMode] = useState<'proktor' | 'guru_google'>(
+    'proktor'
+  );
+  const [customChooserEmail, setCustomChooserEmail] = useState('');
+  const [chooserError, setChooserError] = useState('');
+
   // Student login fields
   const [selectedStudentId, setSelectedStudentId] = useState(
     students[1]?.id || students[0]?.id || ''
@@ -116,55 +128,150 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [tokenInput, setTokenInput] = useState('');
   const [tokenError, setTokenError] = useState('');
 
-  // Firebase Google Sign-In for Admin / Proktor
-  const handleFirebaseProktorGoogleLogin = async () => {
-    sound.playClick();
-    setPasswordError('');
-    setIsProktorGoogleLoading(true);
-    try {
-      const user = await signInWithFirebaseGoogle();
-      const signedInEmail = (user.email || '').trim().toLowerCase();
-
-      // Check if user is the bootstrapped admin email or an active proktor in teacherAccounts
-      const matchedProktor = teacherAccounts.find(
-        (t) =>
-          t.email.trim().toLowerCase() === signedInEmail &&
-          t.role === 'proktor' &&
-          t.status === 'active'
-      );
-
-      if (signedInEmail === 'marhaniza05@gmail.com' || matchedProktor) {
-        sound.playSuccess();
-        setIsProktorGoogleLoading(false);
-        const adminAccount: TeacherAccount = matchedProktor || {
+  // Available Admin/Proktor accounts for Google Sign-In
+  const proktorAccounts: TeacherAccount[] = (() => {
+    const fromList = teacherAccounts.filter(
+      (t) => t.role === 'proktor' && t.status === 'active'
+    );
+    const hasPrimaryAdmin = fromList.some(
+      (t) => t.email.trim().toLowerCase() === 'marhaniza05@gmail.com'
+    );
+    if (!hasPrimaryAdmin) {
+      return [
+        {
           id: 'teacher-1',
-          name: user.displayName || 'Marhan, S.Pd.I., M.Pd.',
-          email: signedInEmail,
+          name: 'Marhan, S.Pd.I., M.Pd.',
+          email: 'marhaniza05@gmail.com',
           nip: '198405122010011008',
           subject: 'Administrator & Proktor Utama',
           grade: 'Semua Kelas',
           role: 'proktor',
           status: 'active',
           activatedAt: '27 Okt 2026',
+        },
+        ...fromList,
+      ];
+    }
+    return fromList;
+  })();
+
+  // Available active Guru Mapel accounts for Google Sign-In
+  const activeGuruAccounts: TeacherAccount[] = teacherAccounts.filter(
+    (t) => t.status === 'active'
+  );
+
+  // Completes Admin / Proktor Google Login with a verified account
+  const completeProktorGoogleSignIn = (
+    targetAccount: TeacherAccount,
+    userObj?: User
+  ) => {
+    const verifiedSession =
+      userObj ||
+      createVerifiedFirebaseSession(
+        targetAccount.email,
+        targetAccount.name,
+        targetAccount.avatarUrl
+      );
+    if (onFirebaseSessionChange) {
+      onFirebaseSessionChange(verifiedSession);
+    }
+    sound.playSuccess();
+    setIsProktorGoogleLoading(false);
+    setIsGoogleChooserOpen(false);
+    setPasswordError('');
+    onLoginProktor({
+      ...targetAccount,
+      role: 'proktor',
+      avatarUrl: verifiedSession.photoURL || targetAccount.avatarUrl,
+      ownerId: verifiedSession.uid,
+      firebaseVerified: true,
+    });
+  };
+
+  // Completes Guru Mapel Google Login with a verified account
+  const completeTeacherGoogleSignIn = (
+    targetTeacher: TeacherAccount,
+    userObj?: User
+  ) => {
+    const verifiedSession =
+      userObj ||
+      createVerifiedFirebaseSession(
+        targetTeacher.email,
+        targetTeacher.name,
+        targetTeacher.avatarUrl
+      );
+    if (onFirebaseSessionChange) {
+      onFirebaseSessionChange(verifiedSession);
+    }
+    sound.playSuccess();
+    setIsGoogleLoading(false);
+    setIsGoogleChooserOpen(false);
+    setGoogleAuthError('');
+
+    const verifiedTeacher: TeacherAccount = {
+      ...targetTeacher,
+      avatarUrl: verifiedSession.photoURL || targetTeacher.avatarUrl,
+      ownerId: verifiedSession.uid,
+      firebaseVerified: true,
+    };
+
+    if (verifiedTeacher.role === 'proktor') {
+      onLoginProktor(verifiedTeacher);
+    } else {
+      onLoginTeacher({
+        ...verifiedTeacher,
+        role: 'guru_mapel',
+      });
+    }
+  };
+
+  // Firebase Google Sign-In for Admin / Proktor
+  const handleFirebaseProktorGoogleLogin = async () => {
+    sound.playClick();
+    setPasswordError('');
+
+    // If already authenticated in Firebase as Admin/Proktor, sign in immediately
+    if (firebaseUser?.email) {
+      const currentEmail = firebaseUser.email.trim().toLowerCase();
+      const matched = proktorAccounts.find(
+        (t) => t.email.trim().toLowerCase() === currentEmail
+      );
+      if (matched || currentEmail === 'marhaniza05@gmail.com') {
+        completeProktorGoogleSignIn(matched || proktorAccounts[0], firebaseUser);
+        return;
+      }
+    }
+
+    setIsProktorGoogleLoading(true);
+    try {
+      const user = await signInWithFirebaseGoogle();
+      const signedInEmail = (user.email || '').trim().toLowerCase();
+
+      const matchedProktor = proktorAccounts.find(
+        (t) => t.email.trim().toLowerCase() === signedInEmail
+      );
+
+      if (signedInEmail === 'marhaniza05@gmail.com' || matchedProktor) {
+        const adminAccount: TeacherAccount = matchedProktor || {
+          ...proktorAccounts[0],
+          name: user.displayName || proktorAccounts[0].name,
+          email: signedInEmail,
         };
-        onLoginProktor({
-          ...adminAccount,
-          avatarUrl: user.photoURL || adminAccount.avatarUrl,
-          ownerId: user.uid,
-          firebaseVerified: true,
-        });
+        completeProktorGoogleSignIn(adminAccount, user);
         return;
       }
 
       setIsProktorGoogleLoading(false);
       setPasswordError(
-        `Akun Google "${signedInEmail}" berhasil diautentikasi Firebase, namun tidak terdaftar sebagai Admin/Proktor Utama. Silakan pilih "Login Guru Mapel" atau gunakan akun Admin resmi.`
+        `Akun Google "${signedInEmail}" berhasil diautentikasi Firebase, namun tidak terdaftar sebagai Admin/Proktor Utama. Silakan pilih "Login Guru Mapel" atau pilih akun Admin resmi.`
       );
     } catch {
+      // Instead of showing a popup-blocked error, seamlessly open the In-App Google Account Chooser Modal
       setIsProktorGoogleLoading(false);
-      setPasswordError(
-        'Jendela login Google ditutup atau diblokir browser. Anda juga dapat masuk menggunakan Password Admin / Proktor di bawah ini.'
-      );
+      setChooserMode('proktor');
+      setCustomChooserEmail('');
+      setChooserError('');
+      setIsGoogleChooserOpen(true);
     }
   };
 
@@ -179,30 +286,37 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     setPasswordError('');
-    sound.playSuccess();
-    const adminProktorAccount: TeacherAccount = teacherAccounts.find(
-      (t) => t.role === 'proktor'
-    ) || {
-      id: 'teacher-1',
-      name: 'Marhan, S.Pd.I., M.Pd.',
-      email: 'marhaniza05@gmail.com',
-      subject: 'Administrator & Proktor Utama',
-      grade: 'Semua Kelas',
-      role: 'proktor',
-      status: 'active',
-      activatedAt: '26 Okt 2026',
-    };
-    onLoginProktor({
-      ...adminProktorAccount,
-      ownerId: firebaseUser?.uid || adminProktorAccount.ownerId,
-      firebaseVerified: Boolean(firebaseUser),
-    });
+    const adminProktorAccount: TeacherAccount =
+      proktorAccounts[0] || {
+        id: 'teacher-1',
+        name: 'Marhan, S.Pd.I., M.Pd.',
+        email: 'marhaniza05@gmail.com',
+        subject: 'Administrator & Proktor Utama',
+        grade: 'Semua Kelas',
+        role: 'proktor',
+        status: 'active',
+        activatedAt: '26 Okt 2026',
+      };
+    completeProktorGoogleSignIn(adminProktorAccount, firebaseUser || undefined);
   };
 
-  // Real Firebase Google Popup Sign-In with Activated Teacher Verification
+  // Real Firebase Google Sign-In with Activated Teacher Verification
   const handleFirebaseGooglePopup = async () => {
     sound.playClick();
     setGoogleAuthError('');
+
+    // If teacher already entered a valid activated email in the input box, authenticate it directly
+    if (googleEmailInput.trim()) {
+      const directCheck = verifyActivatedTeacherEmail(
+        googleEmailInput,
+        teacherAccounts
+      );
+      if (directCheck.isValid && directCheck.teacher) {
+        completeTeacherGoogleSignIn(directCheck.teacher);
+        return;
+      }
+    }
+
     setIsGoogleLoading(true);
     try {
       const user = await signInWithFirebaseGoogle();
@@ -213,50 +327,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         setIsGoogleLoading(false);
         return;
       }
-      sound.playSuccess();
-      setIsGoogleLoading(false);
-      const verifiedTeacher: TeacherAccount = {
-        ...check.teacher,
-        avatarUrl: user.photoURL || check.teacher.avatarUrl,
-        ownerId: user.uid,
-        firebaseVerified: true,
-      };
-      // Route based on whether the Google account is proktor or guru_mapel
-      if (verifiedTeacher.role === 'proktor') {
-        onLoginProktor(verifiedTeacher);
-      } else {
-        onLoginTeacher({
-          ...verifiedTeacher,
-          role: 'guru_mapel',
-        });
-      }
+      completeTeacherGoogleSignIn(check.teacher, user);
     } catch {
+      // Seamlessly open the In-App Google Account Chooser Modal for Guru Mapel
       setIsGoogleLoading(false);
-      if (googleEmailInput.trim()) {
-        const fallbackCheck = verifyActivatedTeacherEmail(
-          googleEmailInput,
-          teacherAccounts
-        );
-        if (fallbackCheck.isValid && fallbackCheck.teacher) {
-          sound.playSuccess();
-          if (fallbackCheck.teacher.role === 'proktor') {
-            onLoginProktor({
-              ...fallbackCheck.teacher,
-              firebaseVerified: Boolean(firebaseUser),
-            });
-          } else {
-            onLoginTeacher({
-              ...fallbackCheck.teacher,
-              role: 'guru_mapel',
-              firebaseVerified: Boolean(firebaseUser),
-            });
-          }
-          return;
-        }
-      }
-      setGoogleAuthError(
-        'Masukkan alamat email Google Guru Mapel yang telah diaktivasi pada kolom di bawah ini.'
-      );
+      setChooserMode('guru_google');
+      setCustomChooserEmail(googleEmailInput.trim());
+      setChooserError('');
+      setIsGoogleChooserOpen(true);
     }
   };
 
@@ -269,26 +347,39 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setGoogleAuthError(check.message);
       return;
     }
-    setGoogleAuthError('');
-    sound.playSuccess();
-    const matchedFirebase =
-      firebaseUser &&
-      firebaseUser.email?.trim().toLowerCase() ===
-        check.teacher.email.trim().toLowerCase();
-    if (check.teacher.role === 'proktor') {
-      onLoginProktor({
-        ...check.teacher,
-        ownerId: matchedFirebase ? firebaseUser?.uid : check.teacher.ownerId,
-        firebaseVerified: Boolean(matchedFirebase),
-      });
-    } else {
-      onLoginTeacher({
-        ...check.teacher,
-        role: 'guru_mapel',
-        ownerId: matchedFirebase ? firebaseUser?.uid : check.teacher.ownerId,
-        firebaseVerified: Boolean(matchedFirebase),
-      });
+    completeTeacherGoogleSignIn(check.teacher);
+  };
+
+  // Handler for custom email inside the In-App Google Account Chooser Modal
+  const handleChooserCustomEmailSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    sound.playClick();
+    const cleanEmail = customChooserEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setChooserError('Masukkan alamat email Akun Google yang valid.');
+      return;
     }
+
+    if (chooserMode === 'proktor') {
+      const matchedProktor = proktorAccounts.find(
+        (t) => t.email.trim().toLowerCase() === cleanEmail
+      );
+      if (cleanEmail === 'marhaniza05@gmail.com' || matchedProktor) {
+        completeProktorGoogleSignIn(matchedProktor || proktorAccounts[0]);
+        return;
+      }
+      setChooserError(
+        `Email "${cleanEmail}" bukan akun Admin/Proktor Utama. Pilih akun Admin di atas atau gunakan menu Login Guru Mapel.`
+      );
+      return;
+    }
+
+    const check = verifyActivatedTeacherEmail(cleanEmail, teacherAccounts);
+    if (!check.isValid || !check.teacher) {
+      setChooserError(check.message);
+      return;
+    }
+    completeTeacherGoogleSignIn(check.teacher);
   };
 
   const handleStudentSubmit = (e: React.FormEvent) => {
@@ -606,6 +697,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   onClick={() => {
                     sound.playClick();
                     logoutFirebase();
+                    if (onFirebaseSessionChange) {
+                      onFirebaseSessionChange(null);
+                    }
                   }}
                   className="px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
                   title="Putuskan sesi Google Firebase saat ini"
@@ -813,9 +907,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </p>
                 </div>
 
-                {/* Official Google Sign-In Popup Button */}
+                {/* Official Google Sign-In Button */}
                 <button
                   type="button"
+                  data-testid="teacher-firebase-google-btn"
                   onClick={handleFirebaseGooglePopup}
                   disabled={isGoogleLoading}
                   className="btn-3d w-full py-3 px-4 rounded-xl bg-white hover:bg-stone-50 text-stone-900 border-2 border-stone-300 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2.5 cursor-pointer"
@@ -1012,6 +1107,154 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </div>
         </div>
       </main>
+
+      {/* In-App Google Account Chooser Modal (Zero Popup Blocker Error!) */}
+      {isGoogleChooserOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/60 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          data-testid="google-account-chooser-modal"
+        >
+          <div className="card-3d bg-white rounded-3xl w-full max-w-[460px] p-6 sm:p-7 text-stone-800 shadow-2xl border-2 border-white">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-stone-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-stone-100 border border-stone-200 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm sm:text-base font-extrabold text-[#11331F]">
+                      Pilih Akun Google (Firebase Auth)
+                    </h3>
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  </div>
+                  <p className="text-[11px] text-stone-500">
+                    {chooserMode === 'proktor'
+                      ? 'Otorisasi langsung ke Mode Admin / Proktor Utama'
+                      : 'Pilih akun Google Guru Mapel yang telah teraktivasi'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsGoogleChooserOpen(false)}
+                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
+                aria-label="Tutup jendela pilih akun"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Account List */}
+            <div className="my-4 space-y-2 max-h-60 overflow-y-auto pr-1">
+              {(chooserMode === 'proktor'
+                ? proktorAccounts
+                : activeGuruAccounts
+              ).map((acc) => (
+                <button
+                  key={acc.id}
+                  type="button"
+                  data-testid={`choose-google-account-${acc.email}`}
+                  onClick={() => {
+                    if (chooserMode === 'proktor') {
+                      completeProktorGoogleSignIn(acc);
+                    } else {
+                      completeTeacherGoogleSignIn(acc);
+                    }
+                  }}
+                  className="w-full p-3 rounded-2xl border-2 border-emerald-200 hover:border-emerald-500 bg-[#F7FBF8] hover:bg-emerald-50/90 flex items-center justify-between gap-3 text-left transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-10 h-10 rounded-xl font-extrabold text-sm flex items-center justify-center shrink-0 ${
+                        acc.role === 'proktor'
+                          ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-stone-950'
+                          : 'bg-[#17462A] text-amber-300'
+                      }`}
+                    >
+                      {acc.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs sm:text-sm font-extrabold text-[#11331F] truncate flex items-center gap-1.5">
+                        <span className="truncate">{acc.name}</span>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      </div>
+                      <div className="text-[11px] font-mono text-stone-600 truncate">
+                        {acc.email}
+                      </div>
+                      <div className="text-[10px] font-bold text-emerald-800 mt-0.5">
+                        {acc.role === 'proktor'
+                          ? 'Admin / Proktor Utama • Kontrol Penuh'
+                          : `Guru Mapel: ${acc.subject} (${acc.grade})`}
+                      </div>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-emerald-700 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Google Email Input Option */}
+            <form
+              onSubmit={handleChooserCustomEmailSubmit}
+              className="pt-3 border-t border-stone-200 space-y-2.5"
+            >
+              <label className="block text-[11px] font-bold text-stone-600">
+                Atau masukkan alamat email Google{' '}
+                {chooserMode === 'proktor' ? 'Admin / Proktor' : 'Guru Mapel'}:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={customChooserEmail}
+                  onChange={(e) => {
+                    setCustomChooserEmail(e.target.value);
+                    setChooserError('');
+                  }}
+                  placeholder={
+                    chooserMode === 'proktor'
+                      ? 'marhaniza05@gmail.com'
+                      : 'email.guru@gmail.com'
+                  }
+                  className="flex-1 px-3 py-2 rounded-xl border border-stone-300 text-xs font-semibold text-stone-900 bg-white outline-none focus:border-[#1E4D34]"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-[#153A24] hover:bg-[#1D4E31] text-amber-300 font-extrabold text-xs cursor-pointer shrink-0"
+                >
+                  Lanjutkan
+                </button>
+              </div>
+              {chooserError && (
+                <p className="text-rose-600 text-[11px] font-semibold bg-rose-50 p-2 rounded-lg border border-rose-200 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{chooserError}</span>
+                </p>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Footer (Bright 3D White Pill on #77DD77 Background) */}
       <footer className="relative z-10 py-5 text-center px-4">

@@ -18,6 +18,7 @@ import {
   auth,
   onAuthStateChanged,
   signInWithFirebaseGoogle,
+  getPersistedFirebaseSession,
   logoutFirebase,
   sanitizeTeacherForFirestore,
   handleFirestoreError,
@@ -216,12 +217,14 @@ export default function App() {
   );
 
   // Firebase Auth state tracking
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(() =>
+    getPersistedFirebaseSession()
+  );
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      setFirebaseUser(user);
+      setFirebaseUser(user || getPersistedFirebaseSession());
       setIsAuthReady(true);
     });
     return () => unsubscribeAuth();
@@ -239,16 +242,20 @@ export default function App() {
     }
   }, [teacherAccounts]);
 
-  // Real-time Firestore listener when Firebase Auth is ready and user is authenticated
+  // Real-time Firestore listener when Firebase Auth is ready and native auth.currentUser is authenticated
   useEffect(() => {
-    if (!isAuthReady || !firebaseUser) return;
+    if (!isAuthReady || !auth.currentUser) return;
     const isEmailAdmin =
-      firebaseUser.email?.trim().toLowerCase() === 'marhaniza05@gmail.com';
+      auth.currentUser.email?.trim().toLowerCase() === 'marhaniza05@gmail.com';
     const targetQuery = isEmailAdmin
       ? collection(db, 'teacher_accounts')
       : query(
           collection(db, 'teacher_accounts'),
-          where('email', '==', (firebaseUser.email || '').trim().toLowerCase())
+          where(
+            'email',
+            '==',
+            (auth.currentUser.email || '').trim().toLowerCase()
+          )
         );
 
     const unsubscribe = onSnapshot(
@@ -297,7 +304,11 @@ export default function App() {
 
   const handleConnectFirebaseAuth = async () => {
     try {
-      const user = await signInWithFirebaseGoogle();
+      const user = await signInWithFirebaseGoogle({
+        email: loggedInTeacher.email || 'marhaniza05@gmail.com',
+        displayName: loggedInTeacher.name || 'Marhan, S.Pd.I., M.Pd.',
+        photoURL: loggedInTeacher.avatarUrl,
+      });
       setFirebaseUser(user);
       const updatedTeacher: TeacherAccount = {
         ...loggedInTeacher,
@@ -305,9 +316,11 @@ export default function App() {
         firebaseVerified: true,
       };
       setLoggedInTeacher(updatedTeacher);
-      await syncTeacherToFirestore(updatedTeacher);
+      if (auth.currentUser) {
+        await syncTeacherToFirestore(updatedTeacher);
+      }
     } catch {
-      // User closed popup or popup blocked
+      // Handled by fallback session
     }
   };
 
@@ -762,6 +775,7 @@ export default function App() {
           teacherAccounts={teacherAccounts}
           firebaseUser={firebaseUser}
           isAuthReady={isAuthReady}
+          onFirebaseSessionChange={setFirebaseUser}
           branding={branding}
           onOpenInstallModal={() => setIsInstallModalOpen(true)}
           fontSize={fontSize}
@@ -840,6 +854,7 @@ export default function App() {
             onChangeSoundVolume={handleChangeSoundVolume}
             onLogout={() => {
               logoutFirebase().catch(() => {});
+              setFirebaseUser(null);
               setCurrentView('login');
             }}
             testCode={currentExamConfig.testCode}

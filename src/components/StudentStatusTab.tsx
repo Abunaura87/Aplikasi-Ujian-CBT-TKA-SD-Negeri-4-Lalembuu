@@ -14,7 +14,7 @@ import {
   AlertCircle,
   X,
 } from 'lucide-react';
-import { Student } from '../types/cbt';
+import { ExamConfig, Student } from '../types/cbt';
 import {
   formatDuration,
   generateStudentTemplateCsv,
@@ -24,6 +24,7 @@ import { sound } from '../utils/soundEffects';
 
 interface StudentStatusTabProps {
   students: Student[];
+  activeExamConfig?: ExamConfig;
   activeTestCode?: string;
   questionCount?: number;
   durationMinutes?: number;
@@ -35,9 +36,10 @@ interface StudentStatusTabProps {
 
 export const StudentStatusTab: React.FC<StudentStatusTabProps> = ({
   students,
-  activeTestCode = 'CBT-2026-SD4-LIT-001',
-  questionCount = 15,
-  durationMinutes = 45,
+  activeExamConfig,
+  activeTestCode = activeExamConfig?.testCode || 'CBT-2026-SD4-LIT-001',
+  questionCount = activeExamConfig?.questionCount || 15,
+  durationMinutes = activeExamConfig?.durationMinutes || 45,
   onResetStudent,
   onAddStudent,
   onImportStudents,

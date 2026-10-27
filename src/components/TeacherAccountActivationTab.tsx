@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react';
 import { ExamConfig, Student, TeacherAccount } from '../types/cbt';
+import { User } from '../firebase';
 import {
   createDemoTeacherAccount,
   createDemoStudentAccount,
@@ -34,6 +35,8 @@ interface TeacherAccountActivationTabProps {
   onAddDemoStudent: (demoStudent: Student) => void;
   onSwitchLoggedInTeacher: (teacher: TeacherAccount) => void;
   onStartDemoStudentExam: (student: Student) => void;
+  firebaseUser?: User | null;
+  onConnectFirebaseAuth?: () => void;
 }
 
 export const TeacherAccountActivationTab: React.FC<
@@ -48,6 +51,8 @@ export const TeacherAccountActivationTab: React.FC<
   onAddDemoStudent,
   onSwitchLoggedInTeacher,
   onStartDemoStudentExam,
+  firebaseUser,
+  onConnectFirebaseAuth,
 }) => {
   // New Teacher Activation Form State
   const [name, setName] = useState('');
