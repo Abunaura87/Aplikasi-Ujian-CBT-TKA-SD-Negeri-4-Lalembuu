@@ -20,7 +20,7 @@ export default defineConfig(() => {
           'pwa-maskable-512x512.png',
         ],
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module',
         },
         workbox: {
@@ -30,6 +30,7 @@ export default defineConfig(() => {
           clientsClaim: true,
           skipWaiting: true,
           navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/__\//],
         },
         manifest: {
           id: '/',

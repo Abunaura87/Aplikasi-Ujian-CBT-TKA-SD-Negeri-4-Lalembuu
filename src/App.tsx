@@ -18,7 +18,6 @@ import {
   auth,
   onAuthStateChanged,
   signInWithFirebaseGoogle,
-  getPersistedFirebaseSession,
   logoutFirebase,
   sanitizeTeacherForFirestore,
   handleFirestoreError,
@@ -217,14 +216,17 @@ export default function App() {
   );
 
   // Firebase Auth state tracking
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(() =>
-    getPersistedFirebaseSession()
-  );
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
 
   useEffect(() => {
+    try {
+      localStorage.removeItem('cbt_sdn4_lalembuu_firebase_session_v1');
+    } catch {
+      // ignore
+    }
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      setFirebaseUser(user || getPersistedFirebaseSession());
+      setFirebaseUser(user);
       setIsAuthReady(true);
     });
     return () => unsubscribeAuth();
@@ -304,11 +306,7 @@ export default function App() {
 
   const handleConnectFirebaseAuth = async () => {
     try {
-      const user = await signInWithFirebaseGoogle({
-        email: loggedInTeacher.email || 'marhaniza05@gmail.com',
-        displayName: loggedInTeacher.name || 'Marhan, S.Pd.I., M.Pd.',
-        photoURL: loggedInTeacher.avatarUrl,
-      });
+      const user = await signInWithFirebaseGoogle();
       setFirebaseUser(user);
       const updatedTeacher: TeacherAccount = {
         ...loggedInTeacher,
@@ -320,7 +318,7 @@ export default function App() {
         await syncTeacherToFirestore(updatedTeacher);
       }
     } catch {
-      // Handled by fallback session
+      // Popup closed or blocked
     }
   };
 

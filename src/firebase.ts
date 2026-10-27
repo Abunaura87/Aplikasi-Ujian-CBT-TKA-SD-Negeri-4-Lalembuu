@@ -3,6 +3,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  browserPopupRedirectResolver,
   signOut,
   onAuthStateChanged,
   User,
@@ -23,7 +24,6 @@ import firebaseConfig from '../firebase-applet-config.json';
 import { TeacherAccount } from './types/cbt';
 
 export const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
-const FIREBASE_SESSION_STORAGE_KEY = 'cbt_sdn4_lalembuu_firebase_session_v1';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -47,148 +47,21 @@ let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 
 /**
- * Checks whether the current browser context supports native Firebase Auth popups
- * without throwing auth/unauthorized-domain (on dynamic *.run.app preview hosts)
- * or cross-origin iframe popup blocking.
+ * Triggers real Firebase Google Sign-In via Popup using explicit browserPopupRedirectResolver
+ * so window.open is invoked immediately on the user click gesture.
  */
-export function canUseNativeFirebasePopup(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    if (window.self !== window.top) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-  const host = window.location.hostname.toLowerCase();
-  return (
-    host === 'localhost' ||
-    host === '127.0.0.1' ||
-    host.endsWith('.firebaseapp.com') ||
-    host.endsWith('.web.app')
+export const signInWithFirebaseGoogle = async (): Promise<User> => {
+  const result = await signInWithPopup(
+    auth,
+    authGoogleProvider,
+    browserPopupRedirectResolver
   );
-}
-
-/**
- * Creates and persists a verified Firebase User session object for environments
- * where third-party popups are blocked by the iframe/browser or dynamic preview domain.
- */
-export function createVerifiedFirebaseSession(
-  email: string,
-  displayName: string,
-  photoURL?: string
-): User {
-  const cleanEmail = (email || 'marhaniza05@gmail.com').trim().toLowerCase();
-  const cleanName = (displayName || 'Marhan, S.Pd.I., M.Pd.').trim();
-  const uid = `firebase-${cleanEmail.replace(/[^a-z0-9]/g, '-')}`;
-
-  const sessionUser = {
-    uid,
-    email: cleanEmail,
-    displayName: cleanName,
-    photoURL: photoURL || null,
-    emailVerified: true,
-    isAnonymous: false,
-    tenantId: null,
-    providerData: [
-      {
-        providerId: 'google.com',
-        uid: cleanEmail,
-        displayName: cleanName,
-        email: cleanEmail,
-        phoneNumber: null,
-        photoURL: photoURL || null,
-      },
-    ],
-  } as unknown as User;
-
-  try {
-    localStorage.setItem(
-      FIREBASE_SESSION_STORAGE_KEY,
-      JSON.stringify({
-        uid,
-        email: cleanEmail,
-        displayName: cleanName,
-        photoURL: photoURL || null,
-      })
-    );
-  } catch {
-    // ignore storage errors
-  }
-
-  return sessionUser;
-}
-
-export function getPersistedFirebaseSession(): User | null {
-  if (auth.currentUser) return auth.currentUser;
-  try {
-    const raw = localStorage.getItem(FIREBASE_SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.email === 'string') {
-      return createVerifiedFirebaseSession(
-        parsed.email,
-        parsed.displayName || 'Guru / Proktor',
-        parsed.photoURL || undefined
-      );
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-export const signInWithFirebaseGoogle = async (fallbackAccount?: {
-  email: string;
-  displayName: string;
-  photoURL?: string;
-}): Promise<User> => {
-  if (canUseNativeFirebasePopup()) {
-    try {
-      const result = await signInWithPopup(auth, authGoogleProvider);
-      if (result.user?.email) {
-        createVerifiedFirebaseSession(
-          result.user.email,
-          result.user.displayName || 'Admin / Guru',
-          result.user.photoURL || undefined
-        );
-      }
-      return result.user;
-    } catch (err) {
-      if (fallbackAccount) {
-        return createVerifiedFirebaseSession(
-          fallbackAccount.email,
-          fallbackAccount.displayName,
-          fallbackAccount.photoURL
-        );
-      }
-      throw err;
-    }
-  }
-
-  if (fallbackAccount) {
-    return createVerifiedFirebaseSession(
-      fallbackAccount.email,
-      fallbackAccount.displayName,
-      fallbackAccount.photoURL
-    );
-  }
-
-  throw new Error('USE_IN_APP_GOOGLE_CHOOSER');
+  return result.user;
 };
 
 export const logoutFirebase = async (): Promise<void> => {
-  try {
-    localStorage.removeItem(FIREBASE_SESSION_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
   cachedAccessToken = null;
-  try {
-    await signOut(auth);
-  } catch {
-    // ignore
-  }
+  await signOut(auth);
 };
 
 export const initDriveAuth = (
@@ -196,10 +69,9 @@ export const initDriveAuth = (
   onAuthFailure?: () => void
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
-    const activeUser = user || getPersistedFirebaseSession();
-    if (activeUser) {
+    if (user) {
       if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(activeUser, cachedAccessToken);
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
         cachedAccessToken = null;
         if (onAuthFailure) onAuthFailure();
@@ -211,35 +83,26 @@ export const initDriveAuth = (
   });
 };
 
-export const googleDriveSignIn = async (fallbackEmail?: string): Promise<{
+export const googleDriveSignIn = async (): Promise<{
   user: User;
   accessToken: string;
 } | null> => {
   try {
     isSigningIn = true;
-    if (canUseNativeFirebasePopup()) {
-      const result = await signInWithPopup(auth, googleProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        cachedAccessToken = credential.accessToken;
-        return { user: result.user, accessToken: cachedAccessToken };
-      }
+    const result = await signInWithPopup(
+      auth,
+      googleProvider,
+      browserPopupRedirectResolver
+    );
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Gagal mendapatkan token akses Google Drive.');
     }
-    const verifiedUser =
-      getPersistedFirebaseSession() ||
-      createVerifiedFirebaseSession(
-        fallbackEmail || 'marhaniza05@gmail.com',
-        'Marhan, S.Pd.I., M.Pd.'
-      );
-    return { user: verifiedUser, accessToken: '' };
-  } catch {
-    const verifiedUser =
-      getPersistedFirebaseSession() ||
-      createVerifiedFirebaseSession(
-        fallbackEmail || 'marhaniza05@gmail.com',
-        'Marhan, S.Pd.I., M.Pd.'
-      );
-    return { user: verifiedUser, accessToken: '' };
+    cachedAccessToken = credential.accessToken;
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (error) {
+    console.error('Google Drive sign in error:', error);
+    throw error;
   } finally {
     isSigningIn = false;
   }
