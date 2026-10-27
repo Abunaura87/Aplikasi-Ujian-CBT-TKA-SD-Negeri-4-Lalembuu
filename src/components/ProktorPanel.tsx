@@ -16,6 +16,12 @@ import {
   Trash2,
   GraduationCap,
   UserCheck,
+  Smartphone,
+  Laptop,
+  Download,
+  Eye,
+  EyeOff,
+  RotateCcw,
 } from 'lucide-react';
 import { ExamConfig, AppBrandingConfig, TeacherAccount } from '../types/cbt';
 import {
@@ -24,6 +30,7 @@ import {
   getCurriculumTopics,
   getGradesForEducationLevel,
   getDefaultGradeForLevel,
+  normalizeBrandingConfig,
 } from '../utils/cbtLogic';
 import { sound } from '../utils/soundEffects';
 import { GoogleDriveIcon } from './GoogleDriveArchiveModal';
@@ -42,6 +49,7 @@ interface ProktorPanelProps {
   branding: AppBrandingConfig;
   onUpdateBranding: (newBranding: AppBrandingConfig) => void;
   onOpenGoogleDrive: () => void;
+  onOpenInstallModal?: () => void;
   loggedInTeacher: TeacherAccount;
 }
 
@@ -54,10 +62,12 @@ export const ProktorPanel: React.FC<ProktorPanelProps> = ({
   onToggleTokenActive,
   onReleaseNewToken,
   onNavigateTab,
+  customProktorPassword,
   onUpdateProktorPassword,
   branding,
   onUpdateBranding,
   onOpenGoogleDrive,
+  onOpenInstallModal,
   loggedInTeacher,
 }) => {
   const isProktorAdmin = loggedInTeacher.role === 'proktor';
@@ -81,17 +91,37 @@ export const ProktorPanel: React.FC<ProktorPanelProps> = ({
 
   // Password change state
   const [newPasswordInput, setNewPasswordInput] = useState('');
-  const [passwordSavedMsg, setPasswordSavedMsg] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordSavedMsg, setPasswordSavedMsg] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
-  // Branding (Logo & Login App Title) state
+  // Branding (Logo Login, Navbar Icon, Installed App Icon, App Title & Short Name) state
   const [appTitleInput, setAppTitleInput] = useState(branding.loginAppTitle);
-  const [logoPreview, setLogoPreview] = useState<string | null>(branding.logoDataUrl);
+  const [pwaShortNameInput, setPwaShortNameInput] = useState(
+    branding.pwaShortName || 'CBT SDN 4'
+  );
+  const [logoPreview, setLogoPreview] = useState<string | null>(
+    branding.logoDataUrl
+  );
+  const [navbarIconPreview, setNavbarIconPreview] = useState<string | null>(
+    branding.navbarIconDataUrl || null
+  );
+  const [pwaIconPreview, setPwaIconPreview] = useState<string | null>(
+    branding.pwaIconDataUrl || null
+  );
   const [brandingSavedMsg, setBrandingSavedMsg] = useState('');
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const navbarIconInputRef = useRef<HTMLInputElement | null>(null);
+  const pwaIconInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setAppTitleInput(branding.loginAppTitle);
+    setPwaShortNameInput(branding.pwaShortName || 'CBT SDN 4');
     setLogoPreview(branding.logoDataUrl);
+    setNavbarIconPreview(branding.navbarIconDataUrl || null);
+    setPwaIconPreview(branding.pwaIconDataUrl || null);
   }, [branding]);
 
   // Sync local form state when switching active session
@@ -189,15 +219,51 @@ export const ProktorPanel: React.FC<ProktorPanelProps> = ({
 
   const handleSaveNewPassword = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPasswordInput.trim().length < 4) {
-      setPasswordSavedMsg('Password baru minimal 4 karakter.');
+    const cleanPass = newPasswordInput.trim();
+    if (cleanPass.length < 4) {
+      setPasswordSavedMsg({
+        type: 'error',
+        text: 'Password baru minimal harus terdiri dari 4 karakter.',
+      });
       return;
     }
     sound.playSuccess();
-    onUpdateProktorPassword(newPasswordInput.trim());
+    onUpdateProktorPassword(cleanPass);
     setNewPasswordInput('');
-    setPasswordSavedMsg('Password login Guru/Proktor berhasil diperbarui!');
-    setTimeout(() => setPasswordSavedMsg(''), 4000);
+    setPasswordSavedMsg({
+      type: 'success',
+      text: `Password login Admin/Proktor berhasil diubah dan disimpan permanen! Gunakan password baru ini saat login berikutnya (tetap aktif meskipun halaman di-refresh).`,
+    });
+    setTimeout(() => setPasswordSavedMsg(null), 6000);
+  };
+
+  const handleResetDefaultPassword = () => {
+    sound.playClick();
+    onUpdateProktorPassword('');
+    setNewPasswordInput('');
+    setPasswordSavedMsg({
+      type: 'success',
+      text: 'Password proktor berhasil dikembalikan ke sandi default sistem (marhan123 / proktor123).',
+    });
+    setTimeout(() => setPasswordSavedMsg(null), 5000);
+  };
+
+  const persistBrandingState = (
+    overrides: Partial<AppBrandingConfig>,
+    successMsg: string
+  ) => {
+    const nextConfig = normalizeBrandingConfig({
+      loginAppTitle: appTitleInput.trim() || 'Simulasi CBT / TKA',
+      pwaShortName: pwaShortNameInput.trim() || 'CBT SDN 4',
+      logoDataUrl: logoPreview,
+      navbarIconDataUrl: navbarIconPreview,
+      pwaIconDataUrl: pwaIconPreview,
+      ...overrides,
+    });
+    onUpdateBranding(nextConfig);
+    sound.playSuccess();
+    setBrandingSavedMsg(successMsg);
+    setTimeout(() => setBrandingSavedMsg(''), 5000);
   };
 
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -207,44 +273,104 @@ export const ProktorPanel: React.FC<ProktorPanelProps> = ({
     reader.onload = () => {
       const dataUrl = typeof reader.result === 'string' ? reader.result : null;
       setLogoPreview(dataUrl);
-      onUpdateBranding({
-        loginAppTitle: appTitleInput.trim() || 'Simulasi CBT / TKA',
-        logoDataUrl: dataUrl,
-      });
-      sound.playSuccess();
-      setBrandingSavedMsg('Logo halaman login berhasil diunggah & diterapkan!');
-      setTimeout(() => setBrandingSavedMsg(''), 4000);
+      persistBrandingState(
+        { logoDataUrl: dataUrl },
+        'Logo Halaman Login berhasil diunggah & disimpan permanen!'
+      );
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleNavbarIconFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : null;
+      setNavbarIconPreview(dataUrl);
+      persistBrandingState(
+        { navbarIconDataUrl: dataUrl },
+        'Ikon Navbar, Sidebar & Tab Browser berhasil diperbarui!'
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePwaIconFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : null;
+      setPwaIconPreview(dataUrl);
+      persistBrandingState(
+        { pwaIconDataUrl: dataUrl },
+        'Ikon Instalasi Aplikasi (Laptop, Android & iPhone/iPad) berhasil diperbarui!'
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleApplyIconToAll = (sourceDataUrl: string | null) => {
+    if (!sourceDataUrl) return;
+    setLogoPreview(sourceDataUrl);
+    setNavbarIconPreview(sourceDataUrl);
+    setPwaIconPreview(sourceDataUrl);
+    persistBrandingState(
+      {
+        logoDataUrl: sourceDataUrl,
+        navbarIconDataUrl: sourceDataUrl,
+        pwaIconDataUrl: sourceDataUrl,
+      },
+      'Ikon berhasil disinkronkan ke Halaman Login, Navbar/Sidebar, dan Ikon Instalasi Aplikasi di semua perangkat!'
+    );
   };
 
   const handleResetLogo = () => {
     sound.playClick();
     setLogoPreview(null);
-    if (logoInputRef.current) {
-      logoInputRef.current.value = '';
-    }
-    onUpdateBranding({
-      loginAppTitle: appTitleInput.trim() || 'Simulasi CBT / TKA',
-      logoDataUrl: null,
-    });
-    setBrandingSavedMsg('Logo dikembalikan ke ikon standar.');
-    setTimeout(() => setBrandingSavedMsg(''), 4000);
+    if (logoInputRef.current) logoInputRef.current.value = '';
+    persistBrandingState(
+      { logoDataUrl: null },
+      'Logo halaman login dikembalikan ke ikon standar.'
+    );
+  };
+
+  const handleResetNavbarIcon = () => {
+    sound.playClick();
+    setNavbarIconPreview(null);
+    if (navbarIconInputRef.current) navbarIconInputRef.current.value = '';
+    persistBrandingState(
+      { navbarIconDataUrl: null },
+      'Ikon Navbar & Sidebar dikembalikan ke ikon standar.'
+    );
+  };
+
+  const handleResetPwaIcon = () => {
+    sound.playClick();
+    setPwaIconPreview(null);
+    if (pwaIconInputRef.current) pwaIconInputRef.current.value = '';
+    persistBrandingState(
+      { pwaIconDataUrl: null },
+      'Ikon Instalasi Aplikasi dikembalikan ke ikon standar.'
+    );
   };
 
   const handleSaveBranding = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanTitle = appTitleInput.trim() || 'Simulasi CBT / TKA';
+    const cleanShort = (pwaShortNameInput.trim() || 'CBT SDN 4').slice(0, 12);
     setAppTitleInput(cleanTitle);
-    onUpdateBranding({
-      loginAppTitle: cleanTitle,
-      logoDataUrl: logoPreview,
-    });
-    sound.playSuccess();
-    setBrandingSavedMsg(
-      `Pengaturan tampilan Login ("${cleanTitle}") berhasil disimpan!`
+    setPwaShortNameInput(cleanShort);
+    persistBrandingState(
+      {
+        loginAppTitle: cleanTitle,
+        pwaShortName: cleanShort,
+      },
+      `Pengaturan identitas aplikasi ("${cleanTitle}") & ikon berhasil disimpan permanen!`
     );
-    setTimeout(() => setBrandingSavedMsg(''), 4000);
   };
 
   const tokenCharacters =
@@ -776,7 +902,7 @@ export const ProktorPanel: React.FC<ProktorPanelProps> = ({
         </div>
       </div>
 
-      {/* Section 3 & 4: Khusus Admin / Proktor Utama (Logo, Nama Aplikasi & Sandi Proktor) */}
+      {/* Section 3 & 4: Khusus Admin / Proktor Utama (Logo, Ikon Navbar, Ikon Instalasi Multi-Device & Sandi Proktor) */}
       {isProktorAdmin && (
         <>
           <div className="card-3d rounded-3xl p-6 sm:p-8 border border-emerald-100/90 shadow-sm">
@@ -787,151 +913,412 @@ export const ProktorPanel: React.FC<ProktorPanelProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm sm:text-base font-semibold text-[#102C1D]">
-                    Pengaturan Logo & Nama Aplikasi Login (Khusus Admin / Proktor)
+                    Pengaturan Identitas, Ikon Navbar & Ikon Instalasi Aplikasi (Khusus Admin / Proktor)
                   </h3>
                   <p className="text-xs text-stone-500">
-                    Unggah logo sekolah/instansi untuk ditampilkan di Halaman Login dan ubah judul nama aplikasi (contoh: Simulasi CBT / TKA)
+                    Atur Logo Halaman Login, Ikon Navbar/Sidebar, serta Ikon Aplikasi ketika diinstal di Laptop/PC, Android, dan iPhone/iPad
                   </p>
                 </div>
               </div>
+
+              {onOpenInstallModal && (
+                <button
+                  type="button"
+                  data-testid="proktor-open-pwa-modal-btn"
+                  onClick={() => {
+                    sound.playClick();
+                    onOpenInstallModal();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#143923] hover:bg-[#1E4F31] text-amber-300 border border-amber-400/50 text-xs font-extrabold flex items-center gap-2 shrink-0 cursor-pointer shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Buka Ekstensi Install Aplikasi (Semua Device)</span>
+                </button>
+              )}
             </div>
 
             {brandingSavedMsg && (
-              <div className="mt-4 p-3 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold flex items-center gap-2">
+              <div
+                data-testid="branding-saved-banner"
+                className="mt-4 p-3.5 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-950 text-xs font-bold flex items-center gap-2"
+              >
                 <Check className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>{brandingSavedMsg}</span>
               </div>
             )}
 
-            <form
-              onSubmit={handleSaveBranding}
-              className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6 items-start"
-            >
-              {/* Left: Upload Logo Login Page */}
-              <div className="p-4 rounded-2xl bg-[#F6FAF7] border border-emerald-100 flex flex-col sm:flex-row items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-[#18452B] flex items-center justify-center shadow-md border-2 border-amber-400/80 overflow-hidden shrink-0">
-                  {logoPreview ? (
-                    <img
-                      src={logoPreview}
-                      alt="Preview Logo Login"
-                      className="w-full h-full object-contain bg-white p-1"
-                    />
-                  ) : (
-                    <GraduationCap className="w-8 h-8 text-amber-300" />
-                  )}
+            {/* 3 Icon Configuration Cards: Login Logo, Navbar Icon, Multi-Device PWA Install Icon */}
+            <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* 1. Logo Halaman Login */}
+              <div className="p-4 rounded-2xl bg-[#F6FAF7] border border-emerald-100 flex flex-col justify-between gap-3">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-14 h-14 rounded-2xl bg-[#18452B] flex items-center justify-center shadow-md border-2 border-amber-400/80 overflow-hidden shrink-0">
+                    {logoPreview ? (
+                      <img
+                        src={logoPreview}
+                        alt="Preview Logo Login"
+                        className="w-full h-full object-contain bg-white p-1"
+                      />
+                    ) : (
+                      <GraduationCap className="w-7 h-7 text-amber-300" />
+                    )}
+                  </div>
+                  <div>
+                    <span className="inline-block px-2 py-0.5 rounded bg-emerald-100 text-[#12331F] text-[10px] font-bold mb-1">
+                      1. Kartu Login Utama
+                    </span>
+                    <h4 className="text-xs font-bold text-[#102C1D]">
+                      Logo Halaman Login
+                    </h4>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      Tampil di tengah atas kartu Login Siswa, Guru & Proktor.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex-1 text-center sm:text-left">
-                  <label className="block text-xs font-bold text-[#102C1D] mb-1">
-                    Logo Halaman Login:
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-100">
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoFileChange}
+                    className="hidden"
+                    id="upload-login-logo"
+                  />
+                  <label
+                    htmlFor="upload-login-logo"
+                    className="px-3 py-1.5 rounded-xl bg-[#153822] hover:bg-[#1E4F31] text-amber-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Ganti Logo Login</span>
                   </label>
-                  <p className="text-[11px] text-stone-500 mb-3">
-                    Format PNG, JPG, atau SVG. Akan langsung tampil pada header dan kartu halaman Login.
-                  </p>
-                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                    <input
-                      ref={logoInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLogoFileChange}
-                      className="hidden"
-                      id="upload-login-logo"
-                    />
-                    <label
-                      htmlFor="upload-login-logo"
-                      className="px-3.5 py-2 rounded-xl bg-[#153822] hover:bg-[#1E4F31] text-amber-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Upload Logo Baru</span>
-                    </label>
 
-                    {logoPreview && (
+                  {logoPreview && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyIconToAll(logoPreview)}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 font-bold text-[11px] cursor-pointer"
+                        title="Gunakan gambar ini juga untuk Ikon Navbar & Ikon Install Aplikasi"
+                      >
+                        Terapkan ke Semua
+                      </button>
                       <button
                         type="button"
                         onClick={handleResetLogo}
-                        className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                        className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer"
+                        title="Reset Logo Login"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        <span>Reset Logo</span>
                       </button>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {/* Right: Edit Nama Aplikasi Login (Simulasi CBT / TKA) */}
-              <div className="p-4 rounded-2xl bg-[#F6FAF7] border border-emerald-100 flex flex-col justify-between">
-                <div>
-                  <label className="block text-xs font-bold text-[#102C1D] mb-1.5">
-                    Nama Aplikasi di Halaman Login:
-                  </label>
-                  <input
-                    type="text"
-                    value={appTitleInput}
-                    onChange={(e) => setAppTitleInput(e.target.value)}
-                    placeholder="Simulasi CBT / TKA"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white text-xs font-bold text-[#122E1F] outline-none focus:border-[#1E4D34]"
-                  />
-                  <p className="text-[11px] text-stone-500 mt-1.5">
-                    Teks ini tampil sebagai judul utama pada kartu Login Peserta & Guru/Proktor.
-                  </p>
+              {/* 2. Ikon Navbar & Sidebar */}
+              <div className="p-4 rounded-2xl bg-[#F6FAF7] border border-emerald-100 flex flex-col justify-between gap-3">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-14 h-14 rounded-2xl bg-[#18452B] flex items-center justify-center shadow-md border-2 border-emerald-400/80 overflow-hidden shrink-0">
+                    {navbarIconPreview || logoPreview ? (
+                      <img
+                        src={navbarIconPreview || logoPreview || ''}
+                        alt="Preview Ikon Navbar"
+                        data-testid="proktor-navbar-icon-preview"
+                        className="w-full h-full object-contain bg-white p-1"
+                      />
+                    ) : (
+                      <GraduationCap className="w-7 h-7 text-amber-300" />
+                    )}
+                  </div>
+                  <div>
+                    <span className="inline-block px-2 py-0.5 rounded bg-emerald-100 text-[#12331F] text-[10px] font-bold mb-1">
+                      2. Header Navbar & Sidebar
+                    </span>
+                    <h4 className="text-xs font-bold text-[#102C1D]">
+                      Ikon Navbar & Favicon Tab
+                    </h4>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      Tampil di pojok kiri atas Navbar, Sidebar menu, dan ikon Tab Browser.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="mt-3 flex justify-end">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-stone-950 font-bold text-xs border border-amber-400 shadow-sm flex items-center gap-1.5 cursor-pointer"
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-100">
+                  <input
+                    ref={navbarIconInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleNavbarIconFileChange}
+                    className="hidden"
+                    id="upload-navbar-icon"
+                    data-testid="upload-navbar-icon-input"
+                  />
+                  <label
+                    htmlFor="upload-navbar-icon"
+                    className="px-3 py-1.5 rounded-xl bg-[#153822] hover:bg-[#1E4F31] text-amber-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
                   >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Simpan Nama Aplikasi & Logo</span>
-                  </button>
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Ganti Ikon Navbar</span>
+                  </label>
+
+                  {navbarIconPreview && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyIconToAll(navbarIconPreview)}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 font-bold text-[11px] cursor-pointer"
+                      >
+                        Terapkan ke Semua
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetNavbarIcon}
+                        className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer"
+                        title="Reset Ikon Navbar"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
+              </div>
+
+              {/* 3. Ikon Aplikasi Saat Diinstal (Laptop, Android, iPhone/iPad) */}
+              <div className="p-4 rounded-2xl bg-[#F6FAF7] border border-emerald-100 flex flex-col justify-between gap-3">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-md border-2 border-amber-500 overflow-hidden shrink-0 p-1">
+                    <img
+                      src={
+                        pwaIconPreview ||
+                        navbarIconPreview ||
+                        logoPreview ||
+                        '/pwa-192x192.png'
+                      }
+                      alt="Preview Ikon Install Aplikasi"
+                      data-testid="proktor-pwa-icon-preview"
+                      className="w-full h-full object-contain rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-950 text-[10px] font-bold mb-1">
+                      <Laptop className="w-3 h-3" />
+                      <Smartphone className="w-3 h-3" />
+                      <span>3. Laptop, Android & iPhone</span>
+                    </span>
+                    <h4 className="text-xs font-bold text-[#102C1D]">
+                      Ikon Aplikasi Saat Diinstal
+                    </h4>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      Ikon aplikasi ketika diinstal di Desktop Laptop/PC, HP Android, dan iPhone/iPad.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-100">
+                  <input
+                    ref={pwaIconInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePwaIconFileChange}
+                    className="hidden"
+                    id="upload-pwa-icon"
+                    data-testid="upload-pwa-icon-input"
+                  />
+                  <label
+                    htmlFor="upload-pwa-icon"
+                    className="px-3 py-1.5 rounded-xl bg-[#153822] hover:bg-[#1E4F31] text-amber-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Ganti Ikon Install</span>
+                  </label>
+
+                  {pwaIconPreview && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyIconToAll(pwaIconPreview)}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 font-bold text-[11px] cursor-pointer"
+                      >
+                        Terapkan ke Semua
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetPwaIcon}
+                        className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer"
+                        title="Reset Ikon Instalasi"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Form Nama Aplikasi Login & Nama Pintasan Ikon Aplikasi */}
+            <form
+              onSubmit={handleSaveBranding}
+              className="mt-4 p-4 rounded-2xl bg-[#F6FAF7] border border-emerald-100 grid grid-cols-1 md:grid-cols-12 gap-4 items-end"
+            >
+              <div className="md:col-span-5">
+                <label
+                  htmlFor="admin-app-title-input"
+                  className="block text-xs font-bold text-[#102C1D] mb-1"
+                >
+                  Nama Judul Aplikasi di Halaman Login:
+                </label>
+                <input
+                  id="admin-app-title-input"
+                  type="text"
+                  value={appTitleInput}
+                  onChange={(e) => setAppTitleInput(e.target.value)}
+                  placeholder="Simulasi CBT / TKA"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white text-xs font-bold text-[#122E1F] outline-none focus:border-[#1E4D34]"
+                />
+              </div>
+
+              <div className="md:col-span-4">
+                <label
+                  htmlFor="admin-pwa-short-name-input"
+                  className="block text-xs font-bold text-[#102C1D] mb-1"
+                >
+                  Nama Ikon Saat Diinstal (Maks. 12 Karakter):
+                </label>
+                <input
+                  id="admin-pwa-short-name-input"
+                  type="text"
+                  maxLength={12}
+                  value={pwaShortNameInput}
+                  onChange={(e) => setPwaShortNameInput(e.target.value)}
+                  placeholder="CBT SDN 4"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white text-xs font-bold text-[#122E1F] outline-none focus:border-[#1E4D34]"
+                />
+              </div>
+
+              <div className="md:col-span-3 flex justify-end">
+                <button
+                  type="submit"
+                  data-testid="save-branding-btn"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-stone-950 font-bold text-xs border border-amber-400 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Simpan Nama & Ikon</span>
+                </button>
               </div>
             </form>
           </div>
 
-          <div className="card-3d rounded-3xl p-6 border border-emerald-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-amber-100 text-amber-900">
-                <Lock className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="font-semibold text-sm text-[#102C1D]">
-                  Keamanan Otorisasi Login Admin / Proktor
-                </h4>
-                <p className="text-xs text-stone-500">
-                  Password login proktor tidak ditampilkan secara default di halaman awal. Anda dapat memperbarui password khusus proktor di sini.
-                </p>
-                {passwordSavedMsg && (
-                  <p className="text-xs font-bold text-emerald-700 mt-1">
-                    {passwordSavedMsg}
+          {/* Section 4: Keamanan Otorisasi Login Admin / Proktor (Tersimpan Permanen lintas Refresh) */}
+          <div className="card-3d rounded-3xl p-6 border border-emerald-100 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-100 text-amber-900 shrink-0">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-semibold text-sm text-[#102C1D]">
+                      Keamanan Otorisasi Login Admin / Proktor
+                    </h4>
+                    <span
+                      data-testid="proktor-password-status-badge"
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                        customProktorPassword &&
+                        customProktorPassword.trim().length > 0
+                          ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                          : 'bg-amber-100 text-amber-900 border-amber-300'
+                      }`}
+                    >
+                      {customProktorPassword &&
+                      customProktorPassword.trim().length > 0
+                        ? '● Sandi Kustom Aktif (Tersimpan Permanen)'
+                        : '● Menggunakan Sandi Default Sistem'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Password baru yang Anda simpan di sini otomatis dikunci permanen di penyimpanan perangkat dan tidak akan kembali ke default meskipun halaman di-refresh.
                   </p>
-                )}
+                </div>
               </div>
+
+              <form
+                onSubmit={handleSaveNewPassword}
+                className="flex flex-wrap sm:flex-nowrap items-center gap-2"
+              >
+                <div className="relative flex-1 sm:w-56">
+                  <input
+                    id="proktor-new-password-input"
+                    data-testid="proktor-new-password-input"
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPasswordInput}
+                    onChange={(e) => {
+                      setNewPasswordInput(e.target.value);
+                      setPasswordSavedMsg(null);
+                    }}
+                    placeholder="Ketik password proktor baru..."
+                    className="w-full pl-3.5 pr-9 py-2.5 rounded-xl border border-stone-300 bg-white text-xs font-semibold text-stone-900 outline-none focus:border-[#1E4D34]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((prev) => !prev)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 cursor-pointer"
+                    aria-label="Tampilkan atau sembunyikan password baru"
+                  >
+                    {showNewPassword ? (
+                      <EyeOff className="w-3.5 h-3.5" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  data-testid="save-proktor-password-btn"
+                  className="px-4 py-2.5 rounded-xl bg-[#153822] hover:bg-[#1E4F31] text-amber-300 font-bold text-xs whitespace-nowrap cursor-pointer shadow-xs"
+                >
+                  Simpan Sandi Baru
+                </button>
+
+                {customProktorPassword &&
+                  customProktorPassword.trim().length > 0 && (
+                    <button
+                      type="button"
+                      data-testid="reset-proktor-password-btn"
+                      onClick={handleResetDefaultPassword}
+                      className="px-3 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                      title="Kembalikan ke password default sistem"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset Default</span>
+                    </button>
+                  )}
+              </form>
             </div>
 
-            <form
-              onSubmit={handleSaveNewPassword}
-              className="flex items-center gap-2"
-            >
-              <input
-                type="password"
-                value={newPasswordInput}
-                onChange={(e) => setNewPasswordInput(e.target.value)}
-                placeholder="Password proktor baru..."
-                className="px-3.5 py-2 rounded-xl border border-stone-300 text-xs outline-none focus:border-[#1E4D34]"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-xl bg-[#153822] hover:bg-[#1E4F31] text-amber-300 font-bold text-xs whitespace-nowrap cursor-pointer"
+            {passwordSavedMsg && (
+              <div
+                data-testid="proktor-password-saved-msg"
+                className={`p-3 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                  passwordSavedMsg.type === 'success'
+                    ? 'bg-emerald-100 border-emerald-300 text-emerald-950'
+                    : 'bg-rose-50 border-rose-300 text-rose-800'
+                }`}
               >
-                Simpan Sandi Baru
-              </button>
-            </form>
+                {passwordSavedMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{passwordSavedMsg.text}</span>
+              </div>
+            )}
           </div>
         </>
       )}
     </div>
   );
 };
+
 

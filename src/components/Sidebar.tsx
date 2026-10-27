@@ -15,12 +15,14 @@ import {
   PanelLeftOpen,
   ShieldCheck,
   CheckCircle2,
+  Download,
 } from 'lucide-react';
 import {
   ProktorTabType,
   TeacherAccount,
   AppBrandingConfig,
 } from '../types/cbt';
+import { resolveBrandIcons } from '../utils/cbtLogic';
 import { GoogleDriveIcon } from './GoogleDriveArchiveModal';
 import { sound } from '../utils/soundEffects';
 
@@ -45,6 +47,7 @@ interface SidebarProps {
   loggedInTeacher: TeacherAccount;
   branding: AppBrandingConfig;
   onOpenGoogleDrive: () => void;
+  onOpenInstallModal?: () => void;
   firebaseUser?: { email: string | null; uid: string } | null;
   onConnectFirebaseAuth?: () => void;
 }
@@ -70,10 +73,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   loggedInTeacher,
   branding,
   onOpenGoogleDrive,
+  onOpenInstallModal,
   firebaseUser,
   onConnectFirebaseAuth,
 }) => {
   const isProktorAdmin = loggedInTeacher.role === 'proktor';
+  const { navbarIconUrl } = resolveBrandIcons(branding);
 
   const allNavItems: {
     id: ProktorTabType;
@@ -133,6 +138,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
+      {/* Mobile Backdrop Overlay when Sidebar is open on small screens */}
+      {isOpen && (
+        <div
+          onClick={onToggleOpen}
+          aria-hidden="true"
+          className="fixed inset-0 z-20 bg-stone-950/40 backdrop-blur-[1px] lg:hidden"
+        />
+      )}
+
       {/* Floating Reopen Button when Sidebar is Hidden */}
       {!isOpen && (
         <div className="fixed top-4 left-4 z-40">
@@ -152,13 +166,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* Left Collapsible Sidebar */}
+      {/* Left Collapsible Sidebar (Fixed Drawer on Mobile, Sticky Column on Desktop) */}
       <aside
         aria-label="Sidebar Navigasi Utama"
-        className={`sticky top-0 h-screen z-30 shrink-0 transition-all duration-300 ease-in-out flex flex-col bg-white/95 backdrop-blur-md border-r-2 border-emerald-500/30 shadow-2xl overflow-hidden ${
+        className={`fixed lg:sticky top-0 left-0 h-screen z-30 shrink-0 transition-all duration-300 ease-in-out flex flex-col bg-white/95 backdrop-blur-md border-r-2 border-emerald-500/30 shadow-2xl overflow-hidden ${
           isOpen
-            ? 'w-72 opacity-100'
-            : 'w-0 opacity-0 pointer-events-none border-r-0'
+            ? 'w-72 opacity-100 translate-x-0'
+            : 'w-0 opacity-0 -translate-x-full lg:translate-x-0 pointer-events-none border-r-0'
         }`}
       >
         <div className="w-72 h-full flex flex-col justify-between overflow-y-auto">
@@ -167,16 +181,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 p-0.5 shadow-md shrink-0">
-                  {branding.logoDataUrl ? (
+                  {navbarIconUrl ? (
                     <div className="w-full h-full bg-white rounded-[14px] flex items-center justify-center p-1">
                       <img
-                        src={branding.logoDataUrl}
-                        alt="Logo SDN 4 Lalembuu"
+                        src={navbarIconUrl}
+                        alt="Ikon Navbar SDN 4 Lalembuu"
+                        data-testid="sidebar-brand-icon"
                         className="w-full h-full object-contain"
                       />
                     </div>
                   ) : (
-                    <div className="w-full h-full bg-[#153C25] rounded-[14px] flex items-center justify-center text-amber-300">
+                    <div
+                      data-testid="sidebar-brand-icon-default"
+                      className="w-full h-full bg-[#153C25] rounded-[14px] flex items-center justify-center text-amber-300"
+                    >
                       <GraduationCap className="w-6 h-6" />
                     </div>
                   )}
@@ -250,6 +268,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => {
                     sound.playClick();
                     onSelectTab(item.id);
+                    if (
+                      typeof window !== 'undefined' &&
+                      window.innerWidth < 1024 &&
+                      isOpen
+                    ) {
+                      onToggleOpen();
+                    }
                   }}
                   className={`w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-2xl text-left transition-all cursor-pointer ${
                     isActive
@@ -300,8 +325,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
 
-            {/* Pratinjau Tes & Arsip Google Drive Quick Actions */}
+            {/* Pratinjau Tes, Install Aplikasi & Arsip Google Drive Quick Actions */}
             <div className="pt-3 mt-3 border-t border-stone-200/80 space-y-2">
+              {onOpenInstallModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playClick();
+                    onOpenInstallModal();
+                  }}
+                  data-testid="sidebar-install-app-btn"
+                  className="btn-3d w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-2xl bg-[#143923] hover:bg-[#1E4F31] text-amber-300 font-semibold text-xs border border-amber-400/50 cursor-pointer"
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span>Install Aplikasi (Semua Device)</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {

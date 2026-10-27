@@ -92,4 +92,8 @@ export interface AppState {
 export interface AppBrandingConfig {
   loginAppTitle: string;
   logoDataUrl: string | null;
+  navbarIconDataUrl?: string | null;
+  pwaIconDataUrl?: string | null;
+  pwaShortName?: string;
 }
+

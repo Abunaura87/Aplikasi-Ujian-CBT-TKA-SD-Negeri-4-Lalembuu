@@ -22,6 +22,7 @@ import {
   Minus,
   Plus,
   LogOut,
+  Download,
 } from 'lucide-react';
 import {
   signInWithFirebaseGoogle,
@@ -39,6 +40,7 @@ import {
   validateToken,
   verifyProktorPassword,
   verifyActivatedTeacherEmail,
+  resolveBrandIcons,
 } from '../utils/cbtLogic';
 
 interface LoginPageProps {
@@ -52,6 +54,7 @@ interface LoginPageProps {
   onLoginProktor: (loggedInTeacher: TeacherAccount) => void;
   onLoginTeacher: (loggedInTeacher: TeacherAccount) => void;
   onLoginStudent: (student: Student, selectedSession: ExamConfig) => void;
+  onOpenInstallModal?: () => void;
   fontSize: 'normal' | 'large' | 'xlarge';
   onChangeFontSize: (size: 'normal' | 'large' | 'xlarge') => void;
   soundEnabled: boolean;
@@ -70,6 +73,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onLoginProktor,
   onLoginTeacher,
   onLoginStudent,
+  onOpenInstallModal,
   fontSize,
   onChangeFontSize,
   soundEnabled,
@@ -77,6 +81,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   soundVolume,
   onChangeSoundVolume,
 }) => {
+  const { loginLogoUrl, navbarIconUrl } = resolveBrandIcons(branding);
   // Active sessions available for students to select
   const activeSessions = testSessions.filter((s) => s.status === 'active');
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
@@ -342,21 +347,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }}
       />
 
-      {/* Top Header Bar matching School Identity (With Global Font Size & Audio Volume Controls for All Users) */}
+      {/* Top Header Bar matching School Identity (With Global Font Size, Audio Volume & Multi-Device Install Controls) */}
       <header className="relative z-10 w-full px-4 sm:px-8 py-3.5 border-b border-emerald-600/20 bg-white/95 backdrop-blur-md shadow-sm">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 p-0.5 shadow-md shadow-amber-500/20 overflow-hidden">
-              {branding.logoDataUrl ? (
+              {navbarIconUrl ? (
                 <div className="w-full h-full bg-white rounded-[14px] flex items-center justify-center p-1">
                   <img
-                    src={branding.logoDataUrl}
-                    alt="Logo SD Negeri 4 Lalembuu"
+                    src={navbarIconUrl}
+                    alt="Ikon Navbar SD Negeri 4 Lalembuu"
+                    data-testid="navbar-brand-icon"
                     className="w-full h-full object-contain"
                   />
                 </div>
               ) : (
-                <div className="w-full h-full bg-[#1B4D2E] rounded-[14px] flex items-center justify-center text-amber-300">
+                <div
+                  data-testid="navbar-brand-icon-default"
+                  className="w-full h-full bg-[#1B4D2E] rounded-[14px] flex items-center justify-center text-amber-300"
+                >
                   <School className="w-6 h-6" />
                 </div>
               )}
@@ -376,8 +385,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
           </div>
 
-          {/* Global Font Size & Audio Volume Controls accessible to all users */}
+          {/* Global Font Size, Audio Volume & Install Aplikasi Controls accessible to all users */}
           <div className="flex flex-wrap items-center gap-2">
+            {onOpenInstallModal && (
+              <button
+                type="button"
+                data-testid="login-install-app-btn"
+                onClick={() => {
+                  sound.playClick();
+                  onOpenInstallModal();
+                }}
+                className="px-3 py-1.5 rounded-full bg-[#143923] hover:bg-[#1E4F31] text-amber-300 border border-amber-400/50 text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
+                title="Install Aplikasi di Laptop, Android, atau iPhone/iPad"
+              >
+                <Download className="w-3.5 h-3.5 text-amber-300" />
+                <span>Install Aplikasi</span>
+              </button>
+            )}
+
             {/* Font Size A- / A / A+ */}
             <div
               className="flex items-center bg-[#F4FBF6] border border-emerald-200 rounded-full p-1 text-xs font-extrabold"
@@ -510,11 +535,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <div className="card-3d rounded-3xl p-6 sm:p-8 relative text-stone-800">
             {/* Top Icon / Custom Logo Badge */}
             <div className="flex justify-center -mt-14 mb-4">
-              {branding.logoDataUrl ? (
+              {loginLogoUrl ? (
                 <div className="w-16 h-16 rounded-2xl bg-white border-4 border-white shadow-xl flex items-center justify-center p-1.5 overflow-hidden">
                   <img
-                    src={branding.logoDataUrl}
+                    src={loginLogoUrl}
                     alt="Logo Aplikasi CBT"
+                    data-testid="login-card-logo"
                     className="w-full h-full object-contain"
                   />
                 </div>

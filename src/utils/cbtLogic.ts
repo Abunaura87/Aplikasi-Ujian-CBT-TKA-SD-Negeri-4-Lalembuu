@@ -1,4 +1,10 @@
-import { Question, Student, TeacherAccount } from '../types/cbt';
+import {
+  Question,
+  Student,
+  TeacherAccount,
+  AppBrandingConfig,
+} from '../types/cbt';
+
 
 /**
  * Generates a clean 6-character uppercase token avoiding confusing characters (O, 0, I, 1).
@@ -967,4 +973,76 @@ export function createDemoStudentAccount(
     isDemo: true,
   };
 }
+
+/**
+ * Normalizes branding config loaded from storage or form input.
+ */
+export function normalizeBrandingConfig(
+  raw?: Partial<AppBrandingConfig> | null
+): AppBrandingConfig {
+  const cleanTitle =
+    raw?.loginAppTitle && raw.loginAppTitle.trim().length > 0
+      ? raw.loginAppTitle.trim()
+      : 'Simulasi CBT / TKA';
+  const cleanShort =
+    raw?.pwaShortName && raw.pwaShortName.trim().length > 0
+      ? raw.pwaShortName.trim().slice(0, 12)
+      : 'CBT SDN 4';
+
+  return {
+    loginAppTitle: cleanTitle,
+    logoDataUrl: raw?.logoDataUrl || null,
+    navbarIconDataUrl: raw?.navbarIconDataUrl || null,
+    pwaIconDataUrl: raw?.pwaIconDataUrl || null,
+    pwaShortName: cleanShort,
+  };
+}
+
+/**
+ * Resolves the effective icon URLs for Login card, Navbar/Sidebar, and PWA Installation across devices.
+ */
+export function resolveBrandIcons(branding: AppBrandingConfig): {
+  loginLogoUrl: string | null;
+  navbarIconUrl: string | null;
+  installIconUrl: string;
+  shortName: string;
+} {
+  const normalized = normalizeBrandingConfig(branding);
+  const loginLogoUrl =
+    normalized.logoDataUrl || normalized.navbarIconDataUrl || null;
+  const navbarIconUrl =
+    normalized.navbarIconDataUrl || normalized.logoDataUrl || null;
+  const installIconUrl =
+    normalized.pwaIconDataUrl ||
+    normalized.navbarIconDataUrl ||
+    normalized.logoDataUrl ||
+    '/pwa-192x192.png';
+
+  return {
+    loginLogoUrl,
+    navbarIconUrl,
+    installIconUrl,
+    shortName: normalized.pwaShortName || 'CBT SDN 4',
+  };
+}
+
+/**
+ * Generates a desktop shortcut (.url) file content for Windows / macOS / Linux desktops.
+ */
+export function generateDesktopShortcutContent(
+  appUrl: string,
+  iconUrl?: string
+): string {
+  const cleanUrl = (appUrl || 'http://localhost:3000').trim();
+  const lines = [
+    '[InternetShortcut]',
+    `URL=${cleanUrl}`,
+    `IconIndex=0`,
+  ];
+  if (iconUrl && !iconUrl.startsWith('data:')) {
+    lines.push(`IconFile=${iconUrl}`);
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
 

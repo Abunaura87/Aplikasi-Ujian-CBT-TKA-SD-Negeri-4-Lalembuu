@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#174629" />
+      <stop offset="100%" stop-color="#0E2A18" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE047" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bgGrad)" />
+  <rect x="24" y="24" width="464" height="464" rx="88" fill="none" stroke="url(#goldGrad)" stroke-width="10" stroke-opacity="0.55" />
+  <!-- Graduation Cap Icon -->
+  <path d="M256 116L96 188l160 72 160-72-160-72z" fill="url(#goldGrad)" />
+  <path d="M156 226v78c0 34 45 62 100 62s100-28 100-62v-78l-100 45-100-45z" fill="#77DD77" opacity="0.92" />
+  <path d="M400 198v104" stroke="url(#goldGrad)" stroke-width="16" stroke-linecap="round" />
+  <circle cx="400" cy="312" r="14" fill="#FDE047" />
+  <!-- CBT Text Pill -->
+  <rect x="136" y="388" width="240" height="54" rx="27" fill="url(#goldGrad)" />
+  <text x="256" y="424" font-family="Arial, sans-serif" font-weight="900" font-size="30" fill="#102C1D" text-anchor="middle">CBT SDN 4</text>
+</svg>

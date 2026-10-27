@@ -38,7 +38,15 @@ import {
   INITIAL_USED_TEST_CODES,
   INITIAL_TEACHER_ACCOUNTS,
 } from './data/sampleQuestions';
-import { generateUniqueToken } from './utils/cbtLogic';
+import {
+  generateUniqueToken,
+  normalizeBrandingConfig,
+} from './utils/cbtLogic';
+import {
+  usePWAInstall,
+  useOnlineStatus,
+  syncDocumentBrandingIcons,
+} from './utils/usePWAInstall';
 import { sound } from './utils/soundEffects';
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './components/LoginPage';
@@ -50,23 +58,95 @@ import { StudentStatusTab } from './components/StudentStatusTab';
 import { RankingTab } from './components/RankingTab';
 import { StudentExamRoom } from './components/StudentExamRoom';
 import { GoogleDriveArchiveModal } from './components/GoogleDriveArchiveModal';
+import { PWAInstallModal } from './components/PWAInstallModal';
 
 const BRANDING_STORAGE_KEY = 'cbt_sdn4_lalembuu_branding_v1';
 const TEACHERS_STORAGE_KEY = 'cbt_sdn4_lalembuu_teachers_v1';
+const PROKTOR_PASSWORD_STORAGE_KEY = 'cbt_sdn4_lalembuu_proktor_password_v1';
+const SESSIONS_STORAGE_KEY = 'cbt_sdn4_lalembuu_sessions_v1';
+const ACTIVE_SESSION_STORAGE_KEY = 'cbt_sdn4_lalembuu_active_session_v1';
+const USED_CODES_STORAGE_KEY = 'cbt_sdn4_lalembuu_used_codes_v1';
+const STUDENTS_STORAGE_KEY = 'cbt_sdn4_lalembuu_students_v1';
+const PREFS_STORAGE_KEY = 'cbt_sdn4_lalembuu_prefs_v1';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'login' | 'proktor' | 'exam'>(
     'login'
   );
   const [activeTab, setActiveTab] = useState<ProktorTabType>('panel');
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
-  const [isDriveModalOpen, setIsDriveModalOpen] = useState<boolean>(false);
-  const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
-  const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>(
-    'normal'
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [soundVolume, setSoundVolume] = useState<number>(75);
+  const [isDriveModalOpen, setIsDriveModalOpen] = useState<boolean>(false);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState<boolean>(false);
+  const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
+
+  const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>(
+    () => {
+      try {
+        const saved = localStorage.getItem(PREFS_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (
+            parsed.fontSize === 'normal' ||
+            parsed.fontSize === 'large' ||
+            parsed.fontSize === 'xlarge'
+          ) {
+            return parsed.fontSize;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return 'normal';
+    }
+  );
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(PREFS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.soundEnabled === 'boolean') {
+          return parsed.soundEnabled;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return true;
+  });
+  const [soundVolume, setSoundVolume] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(PREFS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.soundVolume === 'number') {
+          return parsed.soundVolume;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return 75;
+  });
+
+  const { isInstallable, isInstalled, detectedPlatform, promptInstall } =
+    usePWAInstall();
+  const isOnline = useOnlineStatus();
+
+  // Persist user accessibility & audio preferences
+  useEffect(() => {
+    sound.setEnabled(soundEnabled);
+    sound.setVolume(soundVolume);
+    try {
+      localStorage.setItem(
+        PREFS_STORAGE_KEY,
+        JSON.stringify({ fontSize, soundEnabled, soundVolume })
+      );
+    } catch {
+      // ignore
+    }
+  }, [fontSize, soundEnabled, soundVolume]);
 
   // Dynamically scale root HTML font-size so all users can adjust text size across the entire app
   useEffect(() => {
@@ -80,30 +160,34 @@ export default function App() {
     }
   }, [fontSize]);
 
-  // Branding state for Login Page (Logo & App Title configurable by Admin/Proktor)
+  // Branding state for Login Page, Navbar Icon & Multi-Device Installed App Icon
   const [branding, setBranding] = useState<AppBrandingConfig>(() => {
     try {
       const saved = localStorage.getItem(BRANDING_STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          loginAppTitle: parsed.loginAppTitle || 'Simulasi CBT / TKA',
-          logoDataUrl: parsed.logoDataUrl || null,
-        };
+        return normalizeBrandingConfig(JSON.parse(saved));
       }
     } catch {
       // ignore storage errors
     }
-    return {
-      loginAppTitle: 'Simulasi CBT / TKA',
-      logoDataUrl: null,
-    };
+    return normalizeBrandingConfig(null);
   });
 
-  const handleUpdateBranding = (newBranding: AppBrandingConfig) => {
-    setBranding(newBranding);
+  useEffect(() => {
+    syncDocumentBrandingIcons(branding);
     try {
-      localStorage.setItem(BRANDING_STORAGE_KEY, JSON.stringify(newBranding));
+      localStorage.setItem(BRANDING_STORAGE_KEY, JSON.stringify(branding));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [branding]);
+
+  const handleUpdateBranding = (newBranding: AppBrandingConfig) => {
+    const normalized = normalizeBrandingConfig(newBranding);
+    setBranding(normalized);
+    syncDocumentBrandingIcons(normalized);
+    try {
+      localStorage.setItem(BRANDING_STORAGE_KEY, JSON.stringify(normalized));
     } catch {
       // ignore storage quota errors
     }
@@ -274,28 +358,127 @@ export default function App() {
     }
   };
 
-  // Custom Proktor Password (optional override set by Proktor in panel)
-  const [customProktorPassword, setCustomProktorPassword] =
-    useState<string>('');
+  // Custom Proktor Password persisted in localStorage across page refreshes
+  const [customProktorPassword, setCustomProktorPassword] = useState<string>(
+    () => {
+      try {
+        return localStorage.getItem(PROKTOR_PASSWORD_STORAGE_KEY) || '';
+      } catch {
+        return '';
+      }
+    }
+  );
 
-  // Multi-test sessions state (each with its own unique testCode, token, and questions)
-  const [testSessions, setTestSessions] = useState<ExamConfig[]>(
-    INITIAL_TEST_SESSIONS
-  );
-  const [activeSessionId, setActiveSessionId] = useState<string>(
-    INITIAL_TEST_SESSIONS[0].id
-  );
+  const handleUpdateProktorPassword = (newPass: string) => {
+    const clean = (newPass || '').trim();
+    setCustomProktorPassword(clean);
+    try {
+      if (clean) {
+        localStorage.setItem(PROKTOR_PASSWORD_STORAGE_KEY, clean);
+      } else {
+        localStorage.removeItem(PROKTOR_PASSWORD_STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  // Multi-test sessions state (persisted in localStorage)
+  const [testSessions, setTestSessions] = useState<ExamConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_TEST_SESSIONS;
+  });
+
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
+      if (saved) return saved;
+    } catch {
+      // ignore
+    }
+    return INITIAL_TEST_SESSIONS[0].id;
+  });
 
   // Registry of all used test codes (permanently locked to prevent duplicates)
-  const [usedTestCodes, setUsedTestCodes] = useState<string[]>(
-    INITIAL_USED_TEST_CODES
+  const [usedTestCodes, setUsedTestCodes] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(USED_CODES_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_USED_TEST_CODES;
+  });
+
+  // Students list (persisted in localStorage)
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const saved = localStorage.getItem(STUDENTS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_STUDENTS;
+  });
+
+  const [activeStudent, setActiveStudent] = useState<Student>(
+    () => students[1] || students[0] || INITIAL_STUDENTS[0]
   );
 
-  // Students list
-  const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
-  const [activeStudent, setActiveStudent] = useState<Student>(
-    INITIAL_STUDENTS[1]
-  );
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(testSessions));
+    } catch {
+      // ignore
+    }
+  }, [testSessions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, activeSessionId);
+    } catch {
+      // ignore
+    }
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        USED_CODES_STORAGE_KEY,
+        JSON.stringify(usedTestCodes)
+      );
+    } catch {
+      // ignore
+    }
+  }, [usedTestCodes]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STUDENTS_STORAGE_KEY, JSON.stringify(students));
+    } catch {
+      // ignore
+    }
+  }, [students]);
 
   const currentExamConfig =
     testSessions.find((s) => s.id === activeSessionId) || testSessions[0];
@@ -580,6 +763,7 @@ export default function App() {
           firebaseUser={firebaseUser}
           isAuthReady={isAuthReady}
           branding={branding}
+          onOpenInstallModal={() => setIsInstallModalOpen(true)}
           fontSize={fontSize}
           onChangeFontSize={setFontSize}
           soundEnabled={soundEnabled}
@@ -666,6 +850,7 @@ export default function App() {
             loggedInTeacher={loggedInTeacher}
             branding={branding}
             onOpenGoogleDrive={() => setIsDriveModalOpen(true)}
+            onOpenInstallModal={() => setIsInstallModalOpen(true)}
             firebaseUser={firebaseUser}
             onConnectFirebaseAuth={handleConnectFirebaseAuth}
           />
@@ -673,7 +858,7 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0">
             <main
               className={`flex-1 max-w-7xl mx-auto px-4 sm:px-6 py-6 w-full transition-all ${
-                !isSidebarOpen ? 'pt-16 sm:pt-14' : ''
+                !isSidebarOpen ? 'pt-16 sm:pt-14' : 'pt-16 lg:pt-6'
               }`}
             >
               {activeTab === 'panel' && (
@@ -691,10 +876,11 @@ export default function App() {
                   }
                   onNavigateTab={setActiveTab}
                   customProktorPassword={customProktorPassword}
-                  onUpdateProktorPassword={setCustomProktorPassword}
+                  onUpdateProktorPassword={handleUpdateProktorPassword}
                   branding={branding}
                   onUpdateBranding={handleUpdateBranding}
                   onOpenGoogleDrive={() => setIsDriveModalOpen(true)}
+                  onOpenInstallModal={() => setIsInstallModalOpen(true)}
                   loggedInTeacher={loggedInTeacher}
                 />
               )}
@@ -809,7 +995,20 @@ export default function App() {
           />
         </div>
       )}
+
+      {/* Global Multi-Device PWA Install Modal */}
+      <PWAInstallModal
+        isOpen={isInstallModalOpen}
+        onClose={() => setIsInstallModalOpen(false)}
+        branding={branding}
+        isInstallable={isInstallable}
+        isInstalled={isInstalled}
+        detectedPlatform={detectedPlatform}
+        onPromptInstall={promptInstall}
+        isOnline={isOnline}
+      />
     </div>
   );
 }
+
 
