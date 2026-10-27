@@ -1,0 +1,8 @@
+{
+  "name": "CBT SD Negeri 4 Lalembuu",
+  "description": "Aplikasi Simulasi Ujian CBT dan Panel Pengawas Lab SD Negeri 4 Lalembuu. Proktor: Marhan, S.Pd.I., M.Pd.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

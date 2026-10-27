@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "TeacherAccount": {
+      "title": "TeacherAccount",
+      "description": "Activated subject teacher account authorized for Google Authentication in CBT SD Negeri 4 Lalembuu.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique identifier for the teacher account."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Full name and academic title of the teacher."
+        },
+        "nip": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "NIP or NUPTK identifier."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 5,
+          "maxLength": 160,
+          "description": "Google account email address activated for login."
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "description": "Assigned subject taught by the teacher."
+        },
+        "grade": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "description": "Assigned class/grade level."
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Whether this teacher's Google account is currently activated for login."
+        },
+        "isDemo": {
+          "type": "boolean",
+          "description": "Whether this account is a demo account."
+        },
+        "activatedAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Formatted activation timestamp string."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID of the creator or authenticated teacher."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "nip",
+        "email",
+        "subject",
+        "grade",
+        "isActive",
+        "isDemo",
+        "activatedAt",
+        "ownerId"
+      ]
+    }
+  },
+  "firestore": {
+    "/teacher_accounts/{teacherId}": {
+      "schema": {
+        "$ref": "#/entities/TeacherAccount"
+      },
+      "description": "Stores activated subject teacher accounts authorized to sign in via Google."
+    }
+  }
+}
